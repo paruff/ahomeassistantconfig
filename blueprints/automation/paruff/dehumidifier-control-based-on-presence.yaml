@@ -1,0 +1,51 @@
+blueprint:
+  name: Dehumidifier Control Based on Presence
+  description: Turns a dehumidifier on when a person leaves home and off when they
+    return.
+  domain: automation
+  input:
+    person:
+      name: Select Person
+      description: The person whose presence will trigger the automation.
+      selector:
+        entity:
+          domain:
+          - person
+          multiple: false
+    dehumidifier:
+      name: Select Switch
+      description: The switch controlling the dehumidifier.
+      selector:
+        entity:
+          domain:
+          - switch
+          multiple: false
+  source_url: https://github.com/paruff/ha-blueprints/blob/8c1084f95dc9be571318e896f5ab5a6f164cf06f/blueprints/automation/dehumidifier-control-based-on-presence.yaml
+trigger:
+- platform: state
+  entity_id: !input person
+  from: home
+  to: not_home
+- platform: state
+  entity_id: !input person
+  from: not_home
+  to: home
+action:
+- choose:
+  - conditions:
+    - condition: state
+      entity_id: !input person
+      state: not_home
+    sequence:
+    - service: switch.turn_on
+      target:
+        entity_id: !input dehumidifier
+  - conditions:
+    - condition: state
+      entity_id: !input person
+      state: home
+    sequence:
+    - service: switch.turn_off
+      target:
+        entity_id: !input dehumidifier
+mode: single

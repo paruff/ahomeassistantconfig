@@ -1,0 +1,22 @@
+rest_command:
+
+  emhass_dayahead:
+    url: "http://192.168.1.10:5002/action/dayahead-optim"
+    method: POST
+
+  emhass_realtime:
+    url: "http://192.168.1.10:5002/action/optim"
+    method: POST
+
+  emhass_forecast:
+    url: "http://192.168.1.10:5002/action/forecast"
+    method: POST
+
+  emhass_publish:
+    url: "http://192.168.1.10:5002/action/publish"
+    method: POST
+
+  emhass_status:
+    url: "http://192.168.1.10:5002/action/status"
+    method: GET
+

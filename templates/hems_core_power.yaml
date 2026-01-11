@@ -1,0 +1,27 @@
+- sensor:
+    - name: "HEMS PV Power"
+      unique_id: hems_pv_power
+      unit_of_measurement: "W"
+      device_class: power
+      state_class: measurement
+      state: "{{ states('sensor.192_168_1_143_pv_power') | float(0) }}"
+
+    - name: "HEMS Grid Power"
+      unique_id: hems_grid_power
+      unit_of_measurement: "W"
+      device_class: power
+      state_class: measurement
+      state: "{{ states('sensor.192_168_1_143_grid_power') | float(0) }}"
+
+    - name: "HEMS House Load"
+      unique_id: hems_house_load
+      unit_of_measurement: "W"
+      device_class: power
+      state_class: measurement
+      # Logic: (Solar + Grid Import) - Battery Charging = Real House Load
+      # We use 'abs' for grid if exporting to ensure the math stays sane.
+      state: >
+        {% set pv = states('sensor.hems_pv_power') | float(0) %}
+        {% set grid = states('sensor.hems_grid_power') | float(0) %}
+        {% set batt = states('sensor.hems_battery_power') | float(0) %}
+        {{ (pv + grid - batt) | round(0) }}

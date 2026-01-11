@@ -1,0 +1,20 @@
+# Home Assistant Core
+.storage/
+.cloud/
+.google.pubsub/
+# Ignore the database (it can be huge and private)
+*.db
+*.db-shm
+*.db-wal
+# Ignore secrets (NEVER upload this)
+secrets.yaml
+# Ignore logs
+*.log
+# Ignore backups
+backups/
+# Ignore custom components/HACS if you prefer to manage them via manifest
+custom_components/
+# Ignore local images/media
+www/
+# Ignore specific system files
+.DS_Store

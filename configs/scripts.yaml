@@ -1,0 +1,42 @@
+'1690624274336':
+  alias: TeslaChargingSetAmps
+  sequence:
+  - service: tesla_custom.api
+    data:
+      command: CHARGING_AMPS
+      parameters:
+        path_vars:
+          vehicle_id: '{{ state_attr(''binary_sensor.azul_wind_online'', ''id'') }}'
+        charging_amps: '{{ (( states(''number.azul_wind_charging_amps'') | float +
+          states(''sensor.on_grid_export_power'')| float / 240)) | round() }}'
+  mode: queued
+  icon: mdi:car
+  max: 16
+'1690723709415':
+  alias: TeslaChargingIncAmp
+  sequence:
+  - service: tesla_custom.api
+    data:
+      command: CHARGING_AMPS
+      parameters:
+        path_vars:
+          vehicle_id: '{{ state_attr(''binary_sensor.azul_wind_online'', ''id'') }}'
+        charging_amps: '{{ (( states(''number.azul_wind_charging_amps'') | float +
+          1 )) | round() }}'
+  mode: queued
+  icon: mdi:car
+  max: 16
+'1690723785167':
+  alias: TeslaChargingDecAmp
+  sequence:
+  - service: tesla_custom.api
+    data:
+      command: CHARGING_AMPS
+      parameters:
+        path_vars:
+          vehicle_id: '{{ state_attr(''binary_sensor.azul_wind_online'', ''id'') }}'
+        charging_amps: '{{ (( states(''number.azul_wind_charging_amps'') | float -
+          1 )) | round() }}'
+  mode: queued
+  icon: mdi:car
+  max: 16

@@ -1,0 +1,850 @@
+- id: '1741448853273'
+  alias: 'Turn off Entertainment Center '
+  description: ''
+  triggers:
+  - trigger: time
+    at: 00:00:00
+  conditions: []
+  actions:
+  - action: switch.turn_off
+    metadata: {}
+    data: {}
+    target:
+      area_id: tv_room
+      device_id: 54e74376b4a94199de0c932d3b5c2c22
+  mode: single
+- id: '1743274864994'
+  alias: Alert_Low Battery Notifications
+  description: ''
+  use_blueprint:
+    path: Blackshome/low-battery-notifications-and-actions.yaml
+    input:
+      include_easy_notify: enable_easy_notify
+      notify_device:
+      - 2265d9970fd335de3288c5ef041f694f
+      include_time: time_enabled
+      time: 07:00:00
+- id: '1743275085590'
+  alias: Alert_Weather forecast notification
+  description: ''
+  use_blueprint:
+    path: milperks/weather_notification.yaml
+    input:
+      weather_entity: weather.pirateweather
+      notify_device:
+      - 2265d9970fd335de3288c5ef041f694f
+      time: 08:00:00
+      notify_message:
+      - condition
+      - wind
+      - precipitation
+      - temperature
+- id: '1746093849109'
+  alias: High Power Consumption Alert & Load Shedding
+  description: High Power Consumption Alert
+  triggers:
+  - entity_id: sensor.hems_house_load
+    above: 6500
+    for: 00:01:30
+    trigger: numeric_state
+  actions:
+  - data:
+      message: ⚠️ High Power Consumption! House is near 6.9 kVA limit.
+      title: Energy Overload Warning
+    action: notify.notify
+  - delay: 00:01:00
+  - condition: numeric_state
+    entity_id: sensor.hems_house_load
+    above: 6800
+  - data:
+      message: "\U0001F6A8 ALERT! Load shedding activated to reduce power consumption."
+      title: Critical Energy Overload
+    action: notify.notify
+  - entity_id:
+    - switch.attic_dehumidifier_socket_1
+    - switch.dehumidifier_emerio_plug_dehumidifier_emerio_plug
+    - switch.azul_wind_charger
+    action: switch.turn_off
+  mode: single
+- id: '1751727739342'
+  alias: Cast to Google Hub kitchen
+  description: ''
+  use_blueprint:
+    path: kind3r/cast-and-re-cast-a-lovelace-view-to-a-google-hub.yaml
+    input:
+      player: media_player.kitchen_display
+      view: Kitchen
+      dashboard: Lovelace
+- id: hems_unified_dehumidifier_controller
+  alias: HEMS – Dehumidifier Manager (Refactored)
+  description: Staggered control based on solar availability and load shedding.
+  triggers:
+  - trigger: state
+    entity_id: binary_sensor.hems_dehumidifier_allowed
+    for: 00:02:00
+  actions:
+  - if:
+    - condition: state
+      entity_id: binary_sensor.hems_dehumidifier_allowed
+      state: 'on'
+    then:
+    - action: switch.turn_on
+      target:
+        entity_id: switch.cave_dehumidifier
+    - delay: 00:00:05
+    - action: switch.turn_on
+      target:
+        entity_id: switch.hall_dehumidifier
+    - delay: 00:00:05
+    - action: switch.turn_on
+      target:
+        entity_id: switch.attic_dehumidifier
+    else:
+    - action: switch.turn_off
+      target:
+        entity_id:
+        - switch.cave_dehumidifier
+        - switch.hall_dehumidifier
+        - switch.attic_dehumidifier
+  mode: queued
+  max: 10
+- id: '1767082763090'
+  alias: Quick Appliance Log
+  description: Quickly log appliance usage with a button
+  triggers:
+  - event_type: call_service
+    event_data:
+      domain: input_button
+      service: press
+      service_data:
+        entity_id: input_button.log_appliance
+    trigger: event
+  actions:
+  - variables:
+      appliance_name: '{{ states(''input_select.appliance_to_log'') }}'
+      power_usage: '{{ states(''sensor.current_power_draw'') | float(0) | round(0)
+        }}'
+      timestamp: '{{ now().strftime(''%H:%M'') }}'
+  - target:
+      entity_id: input_text.appliance_log_today
+    data:
+      value: "{{ states('input_text.appliance_log_today') ~\n   ' | ' ~ timestamp
+        ~ ' - ' ~ appliance_name ~ \n   ' (' ~ power_usage ~ 'W)' \n   if states('input_text.appliance_log_today')
+        != '' \n   else timestamp ~ ' - ' ~ appliance_name ~ ' (' ~ power_usage ~
+        'W)' }}\n"
+    action: input_text.set_value
+  - data:
+      title: Appliance Logged
+      message: Logged {{ appliance_name }} at {{ timestamp }} ({{ power_usage }}W)
+      notification_id: appliance_logged
+    action: persistent_notification.create
+  - delay: 00:00:30
+  - data:
+      notification_id: appliance_logged
+    action: persistent_notification.dismiss
+  mode: single
+- id: '1767100045359'
+  alias: HEMS - Heat Pump Runtime Monitor
+  description: Track heat pump runtimes
+  triggers:
+  - minutes: /5
+    trigger: time_pattern
+  actions:
+  - choose:
+    - conditions:
+      - condition: template
+        value_template: '{{ house_hp_running }}'
+      sequence:
+      - target:
+          entity_id: input_number.house_hp_runtime_today
+        data:
+          value: 5
+        action: input_number.increment
+    - conditions:
+      - condition: template
+        value_template: '{{ water_hp_running }}'
+      sequence:
+      - target:
+          entity_id: input_number.hot_water_hp_runtime_today
+        data:
+          value: 5
+        action: input_number.increment
+  - variables:
+      current_power: '{{ states(''sensor.on_grid_export_power'') | float(0) }}'
+      time_of_day: '{{ now().strftime(''%H:%M'') }}'
+  - choose:
+    - conditions:
+      - condition: template
+        value_template: '{{ house_hp_running }}'
+      - condition: template
+        value_template: '{{ current_power < 500 }}'
+      - condition: template
+        value_template: '{{ not (''09:00'' <= time_of_day <= ''18:00'') }}
+
+          '
+      sequence:
+      - target:
+          entity_id: binary_sensor.house_heat_pump_running
+        action: binary_sensor.turn_off
+  variables:
+    house_hp_running: '{{ is_state(''binary_sensor.house_heat_pump_running'', ''on'')
+      }}'
+    water_hp_running: '{{ is_state(''binary_sensor.water_heat_pump_running'', ''on'')
+      }}'
+- id: '1767104385099'
+  alias: Setup Test Scenario
+  description: ''
+  triggers:
+  - entity_id: input_select.hems_test_scenario
+    trigger: state
+  conditions:
+  - condition: state
+    entity_id: input_boolean.hems_test_mode
+    state: 'on'
+  actions:
+  - choose:
+    - conditions:
+      - condition: state
+        entity_id: input_select.hems_test_scenario
+        state: Battery Low Alert
+      sequence:
+      - target:
+          entity_id: input_number.test_mock_battery_soc
+        data:
+          value: 25
+        action: input_number.set_value
+      - target:
+          entity_id: input_number.test_mock_surplus_solar
+        data:
+          value: 0
+        action: input_number.set_value
+    - conditions:
+      - condition: state
+        entity_id: input_select.hems_test_scenario
+        state: Solar Surplus EV Charging
+      sequence:
+      - target:
+          entity_id: input_number.test_mock_battery_soc
+        data:
+          value: 60
+        action: input_number.set_value
+      - target:
+          entity_id: input_number.test_mock_surplus_solar
+        data:
+          value: 2500
+        action: input_number.set_value
+      - target:
+          entity_id: sensor.azul_wind_battery_soc
+        data:
+          value: 40
+        action: input_number.set_value
+    - conditions:
+      - condition: state
+        entity_id: input_select.hems_test_scenario
+        state: Load Shedding Active
+      sequence:
+      - target:
+          entity_id: input_number.test_mock_grid_power
+        data:
+          value: 7000
+        action: input_number.set_value
+- id: '1767104480837'
+  alias: Validate Battery Alert
+  description: ''
+  triggers:
+  - entity_id: sensor.battery_reserve_ok
+    to: 'off'
+    trigger: state
+  conditions:
+  - condition: state
+    entity_id: input_boolean.hems_test_mode
+    state: 'on'
+  actions:
+  - data:
+      name: ✅ ASSERTION PASSED
+      message: Battery alert correctly triggered when SOC below reserve
+    action: logbook.log
+- id: '1767104781985'
+  alias: Validate EV Solar Charging
+  description: ''
+  triggers:
+  - entity_id: switch.azul_wind_charger
+    to: 'on'
+    trigger: state
+  conditions:
+  - condition: state
+    entity_id: input_boolean.hems_test_mode
+    state: 'on'
+  - condition: state
+    entity_id: input_select.hems_test_scenario
+    state: Solar Surplus EV Charging
+  actions:
+  - data:
+      name: ✅ ASSERTION PASSED
+      message: EV charging correctly started with solar surplus
+    action: logbook.log
+- id: '1767104831966'
+  alias: Validate Load Shedding
+  description: ''
+  triggers:
+  - entity_id: sensor.load_shedding_active
+    to: 'on'
+    trigger: state
+  conditions:
+  - condition: state
+    entity_id: input_boolean.hems_test_mode
+    state: 'on'
+  actions:
+  - data:
+      name: ✅ ASSERTION PASSED
+      message: Load shedding correctly activated above contract limit
+    action: logbook.log
+- id: '1767130777975'
+  alias: HEMS - Appliance Detector (Refactored)
+  description: Detects Kettle and Pump using power signatures
+  triggers:
+  - trigger: state
+    entity_id: binary_sensor.significant_power_change_detected
+    to: 'on'
+    for: 00:00:02
+  actions:
+  - variables:
+      current_p: '{{ states(''sensor.hems_house_load'') | float(0) }}'
+      is_meal: '{{ is_state(''binary_sensor.meal_time_active'', ''on'') }}'
+  - choose:
+    - conditions:
+      - condition: template
+        value_template: '{{ 1800 <= current_p <= 3200 and is_meal }}'
+      sequence:
+      - wait_for_trigger:
+        - trigger: numeric_state
+          entity_id: sensor.192_168_1_143_load_power
+          below: 800
+        timeout: 00:05:00
+      - action: counter.increment
+        target:
+          entity_id: counter.kettle_uses_today
+      - action: input_text.set_value
+        target:
+          entity_id: input_text.last_detected_appliance
+        data:
+          value: 'Kettle: {{ current_p|round(0) }}W at {{ now().strftime(''%H:%M'')
+            }}'
+    - conditions:
+      - condition: template
+        value_template: '{{ 400 <= current_p <= 900 and not is_meal }}'
+      sequence:
+      - wait_for_trigger:
+        - trigger: numeric_state
+          entity_id: sensor.192_168_1_143_load_power
+          below: 300
+        timeout: 00:02:00
+      - action: counter.increment
+        target:
+          entity_id: counter.water_pump_detections_today
+      - action: input_text.set_value
+        target:
+          entity_id: input_text.last_detected_appliance
+        data:
+          value: 'Water Pump: {{ current_p|round(0) }}W at {{ now().strftime(''%H:%M'')
+            }}'
+  mode: queued
+  max: 5
+- id: '1767169126577'
+  alias: 'HEMS - System Health: Inverter Time Drift Monitor'
+  description: Alerts when the SSLogger clock drifts significantly from HA time
+  triggers:
+  - hours: /1
+    trigger: time_pattern
+  actions:
+  - variables:
+      ha_time: '{{ now() }}'
+      inverter_time: '{{ states(''datetime.192_168_1_143_date_time'') | as_datetime
+        }}'
+      drift_minutes: '{{ ((ha_time - inverter_time).total_seconds() / 60) | abs |
+        round(0) }}'
+  - if:
+    - condition: template
+      value_template: '{{ drift_minutes > 5 }}'
+    then:
+    - action: notify.persistent_notification
+      data:
+        title: ⚠️ Inverter Clock Drift
+        message: 'Your Deye logger is {{ drift_minutes }} minutes out of sync with
+          HA.  Solar scheduling may be inaccurate.  HA: {{ ha_time.strftime(''%H:%M'')
+          }} | Inverter: {{ inverter_time.strftime(''%H:%M'') }}
+
+          '
+- id: '1767170897278'
+  alias: 'HEMS - Advisor: Multi-Load Strategy'
+  description: ''
+  triggers:
+  - minutes: /15
+    trigger: time_pattern
+  actions:
+  - variables:
+      total_forecast: '{{ states(''sensor.energy_production_today'') | float(0) }}'
+      peak_time: '{{ as_timestamp(states(''sensor.power_highest_peak_time_today''))
+        | timestamp_custom(''%H:%M'') }}'
+      current_pv: '{{ states(''sensor.192_168_1_143_pv_power'') | float(0) }}'
+      is_humid: '{{ states(''sensor.hall_dehumid_plug_current_active_power'') | float(0)
+        < 5 }}'
+      soc: '{{ states(''sensor.192_168_1_143_battery'') | float(0) }}'
+  - action: input_text.set_value
+    target:
+      entity_id: input_text.hems_suggestion
+    data:
+      value: "{% if total_forecast > 45 %}\n  \U0001F31F **High Production Day:**
+        You have {{ total_forecast }}kWh coming. \n  1. Start **EV Charging** now
+        to soak up morning sun.\n  2. Run **Hot Water Heat Pump** at {{ peak_time
+        }}.\n  3. **Bosch Dishwasher** is safe for Eco cycle.\n{% elif soc < 25 %}\n
+        \ ⚠️ **Battery Reserve Alert:** Battery is low. \n  Please avoid **Oven**
+        or **Kettle** until {{ peak_time }} when solar picks up.\n{% elif current_pv
+        > 3000 %}\n  ⛅ **Surplus Available:** Current solar is {{ current_pv }}W.
+        \n  Good time for **Dehumidifiers** or **Washing Machine**.\n{% else %}\n
+        \ ⚖️ **Balanced:** System is stable. No manual actions required.\n{% endif
+        %}\n"
+- id: '1767197572760'
+  alias: 'HEMS: Thermal Banking Solar Priority'
+  description: Heat house to 23°C using solar before charging battery
+  triggers:
+  - entity_id: sensor.hems_available_solar_surplus
+    above: 3000
+    for: 00:10:00
+    trigger: numeric_state
+  conditions:
+  - condition: template
+    value_template: '{% set avg_temp = states(''sensor.hems_avg_house_temp'') | float(0)
+      %} {% set target = states(''sensor.hems_thermal_banking_target'') | float(21.5)
+      %} {% set tomorrow_solar = states(''sensor.hems_solar_forecast_tomorrow'') |
+      float(0) %} {{ avg_temp < target and tomorrow_solar < 15 }}
+
+      '
+  actions:
+  - data:
+      entity_id: climate.daikin_altherma_heat_pump
+      temperature: 23
+    action: climate.set_temperature
+  - data:
+      title: "\U0001F3E0 Thermal Banking Active"
+      message: 'Heating to 23°C with solar surplus. Tomorrow''s forecast: {{ states(''sensor.hems_solar_forecast_tomorrow'')
+        }}kWh (low) Current temp: {{ states(''sensor.hems_avg_house_temp'') }}°C
+
+        '
+    action: notify.notify
+  mode: single
+- id: '1767201906738'
+  alias: 'HEMS: Emergency Battery Protection'
+  description: Stop battery discharge when below reserve + enable grid charging
+  triggers:
+  - entity_id: sensor.hems_battery_soc
+    below: 25
+    trigger: numeric_state
+  conditions:
+  - condition: state
+    entity_id: sensor.192_168_1_143_battery_state
+    state: discharging
+  actions:
+  - entity_id: switch.192_168_1_143_battery_grid_charging
+    action: switch.turn_on
+  - data:
+      title: "\U0001F6A8 BATTERY EMERGENCY"
+      message: 'Battery at {{ states(''sensor.hems_battery_soc'') }}%! Grid charging
+        ENABLED to protect reserve. Current draw: {{ states(''sensor.hems_battery_power'')
+        }}W
+
+        '
+      data:
+        priority: high
+        ttl: 0
+    action: notify.notify
+  - data:
+      name: HEMS Battery Protection
+      message: 'Emergency grid charging enabled at {{ states(''sensor.hems_battery_soc'')
+        }}% SOC
+
+        '
+      entity_id: sensor.hems_battery_soc
+    action: logbook.log
+  mode: single
+- id: '1767201968521'
+  alias: 'HEMS: Restore Battery Normal Operation'
+  description: Disable grid charging when battery is healthy again
+  triggers:
+  - entity_id: sensor.hems_battery_soc
+    above: 50
+    for: 00:10:00
+    trigger: numeric_state
+  conditions:
+  - condition: state
+    entity_id: switch.192_168_1_143_battery_grid_charging
+    state: 'on'
+  - condition: template
+    value_template: '{{ now().hour >= 7 }}  # Only during peak hours
+
+      '
+  actions:
+  - entity_id: switch.192_168_1_143_battery_grid_charging
+    action: switch.turn_off
+  - data:
+      title: ✅ Battery Restored
+      message: 'Battery at {{ states(''sensor.hems_battery_soc'') }}%. Grid charging
+        disabled. Solar charging active.
+
+        '
+    action: notify.notify
+  mode: single
+- id: '1767202016351'
+  alias: 'HEMS: Smart Grid Charging (Off-Peak)'
+  description: Charge battery from grid during off-peak hours (00:00-07:00 @ €0.09)
+  triggers:
+  - at: 00:00:00
+    trigger: time
+  conditions:
+  - condition: numeric_state
+    entity_id: sensor.hems_battery_soc
+    below: 80
+  - condition: template
+    value_template: '{% set tomorrow = states(''sensor.hems_solar_forecast_tomorrow'')
+      | float(0) %} {{ tomorrow < 15 }}  # Only if tomorrow''s solar is poor
+
+      '
+  actions:
+  - data:
+      entity_id: number.192_168_1_143_battery_grid_charging_current
+      value: 50
+    action: number.set_value
+  - entity_id: switch.192_168_1_143_battery_grid_charging
+    action: switch.turn_on
+  - data:
+      title: "\U0001F319 Off-Peak Charging"
+      message: 'Grid charging at €0.09/kWh. Target: 80% by 07:00 Tomorrow''s forecast:
+        {{ states(''sensor.hems_solar_forecast_tomorrow'') }}kWh
+
+        '
+    action: notify.notify
+  mode: single
+- id: '1767202078868'
+  alias: 'HEMS: Stop Grid Charging at Peak Hours'
+  description: Disable grid charging when peak tariff starts (07:00)
+  triggers:
+  - at: 07:00:00
+    trigger: time
+  conditions:
+  - condition: state
+    entity_id: switch.192_168_1_143_battery_grid_charging
+    state: 'on'
+  actions:
+  - entity_id: switch.192_168_1_143_battery_grid_charging
+    action: switch.turn_off
+  - data:
+      title: ☀️ Solar Mode Active
+      message: 'Grid charging stopped (peak rate). Battery: {{ states(''sensor.hems_battery_soc'')
+        }}% Solar mode active.
+
+        '
+    action: notify.notify
+  mode: single
+- id: '1767279402585'
+  alias: 'HEMS: Morning Energy Advisor'
+  description: Updates Dashboard Strategy and sends mobile notification
+  triggers:
+  - at: 08:00:00
+    trigger: time
+  conditions: []
+  actions:
+  - variables:
+      battery_soc: '{{ states(''sensor.hems_battery_soc'') | float(0) }}'
+      today_forecast: '{{ states(''sensor.energy_production_today_remaining'') | float(0)
+        }}'
+      tomorrow_forecast: '{{ states(''sensor.hems_solar_forecast_tomorrow'') | float(0)
+        }}'
+      strategy_text: "{% if today_forecast > 40 %}\n  ✅ EXCELLENT: Peak 12-15:00.
+        Use heavy loads, Thermal Banking, and Tesla charging.\n{% elif today_forecast
+        > 25 %}\n  ⚙️ MODERATE: Normal usage. Tesla charging from solar surplus ONLY.
+        \n{% else %}\n  ⚠️ POOR: Conserve battery. No Tesla/Thermal banking. Grid
+        charge tonight.\n{% endif %}\n"
+  - action: input_text.set_value
+    target:
+      entity_id: input_text.hems_suggestion
+    data:
+      value: '{{ strategy_text }}'
+  - action: notify.notify
+    data:
+      title: '☀️ Energy Strategy: {{ today_forecast | round(1) }}kWh'
+      message: "\U0001F4CA BATTERY: {{ battery_soc }}%\n\U0001F4A1 STRATEGY: {{ strategy_text
+        }}\n\U0001F305 TOMORROW: {{ tomorrow_forecast }}kWh \U0001F50B OVERNIGHT:
+        {% if tomorrow_forecast < 20 %}Charge to 80%{% elif tomorrow_forecast < 30
+        %}Charge to 70%{% else %}Light charge (60%){% endif %}\n"
+  mode: single
+- id: '1767279483238'
+  alias: 'HEMS: Evening Energy Report'
+  description: Daily energy summary and savings
+  triggers:
+  - at: '20:00:00'
+    trigger: time
+  actions:
+  - variables:
+      solar_today: '{{ states(''sensor.energy_production_today'') | float(0) }}'
+      grid_import: '{{ states(''sensor.192_168_1_143_today_energy_import'') | float(0)
+        }}'
+      battery_soc: '{{ states(''sensor.hems_battery_soc'') | float(0) }}'
+      self_consumption: '{{ ((solar_today - 0) / (solar_today + grid_import) * 100)
+        | round(0) if (solar_today + grid_import) > 0 else 0 }}'
+      cost: '{{ (grid_import * 0.20) | round(2) }}'
+  - data:
+      title: "\U0001F319 Today's Energy Summary"
+      message: "☀️ SOLAR PRODUCED: {{ solar_today }}kWh \U0001F4E5 GRID IMPORT: {{
+        grid_import }}kWh \U0001F4B0 COST: €{{ cost }}\n\U0001F4CA SELF-CONSUMPTION:
+        {{ self_consumption }}% {% if self_consumption > 90 %}\U0001F3C6 EXCELLENT!{%
+        elif self_consumption > 75 %}✅ GOOD{% elif self_consumption > 60 %}⚙️ MODERATE{%
+        else %}⚠️ NEEDS IMPROVEMENT{% endif %}\n\U0001F50B BATTERY: {{ battery_soc
+        }}% {% if battery_soc < 30 %}⚠️ Will charge tonight{% elif battery_soc > 60
+        %}✅ Healthy level{% endif %}\n\U0001F305 TOMORROW: {{ states('sensor.hems_solar_forecast_tomorrow')
+        }}kWh\n\U0001F4A1 OPPORTUNITIES MISSED TODAY: {% if solar_today > 40 and grid_import
+        > 5 %} • Could have saved €{{ ((grid_import - 5) * 0.20) | round(2) }} with
+        better load shifting {% endif %}\n"
+    action: notify.notify
+  mode: single
+- id: '1767279992349'
+  alias: 'EMHASS: Daily Optimization'
+  description: Run EMHASS optimization every morning
+  triggers:
+  - at: 05:30:00
+    trigger: time
+  actions:
+  - action: rest_command.emhass_dayahead_optim
+- id: '1767375940032'
+  alias: 'EMHASS: Update and Publish'
+  description: Run EMHASS optimization every morning
+  triggers:
+  - at: 05:30:00
+    trigger: time
+  conditions: []
+  actions:
+  - action: rest_command.emhass_dayahead_optim
+  mode: single
+- id: '1767382361642'
+  alias: 'EMHASS: Battery Real-Time Dispatch'
+  description: Pushes EMHASS optimization results to the inverter every minute
+  triggers:
+  - minutes: /1
+    trigger: time_pattern
+  actions:
+  - choose:
+    - conditions:
+      - condition: template
+        value_template: '{{ batt_power > 0 }}'
+      sequence:
+      - target:
+          entity_id: number.battery_charge_limit
+        data:
+          value: '{{ batt_power }}'
+        action: number.set_value
+    - conditions:
+      - condition: template
+        value_template: '{{ batt_power < 0 }}'
+      sequence:
+      - target:
+          entity_id: number.battery_discharge_limit
+        data:
+          value: '{{ batt_power | abs }}'
+        action: number.set_value
+    - conditions:
+      - condition: template
+        value_template: '{{ batt_power == 0 }}'
+      sequence:
+      - target:
+          entity_id: number.battery_charge_limit
+        data:
+          value: 0
+        action: number.set_value
+  mode: restart
+  variables:
+    batt_power: "{% set task_list = state_attr('sensor.emhass_optimization_results',
+      'p_batt_forecast') %} {% if task_list is not none %}\n  {{ task_list[0] | int
+      }}\n{% else %}\n  0\n{% endif %}\n"
+- id: '1767698926944'
+  alias: HEMS Battery Strategy Controller
+  description: ''
+  triggers:
+  - entity_id: sensor.192_168_1_143_battery
+    trigger: state
+  - minutes: /5
+    trigger: time_pattern
+  actions:
+  - choose:
+    - conditions:
+      - condition: numeric_state
+        entity_id: sensor.192_168_1_143_battery
+        below: 25
+      sequence:
+      - data:
+          entity_id: input_select.battery_strategy
+          option: reserve
+        action: input_select.select_option
+      - data:
+          title: ⚠️ Battery Reserve Mode
+          message: Battery at {{ states('sensor.192_168_1_143_battery') }}%. Limiting
+            loads.
+        action: notify.persistent_notification
+      - entity_id:
+        - switch.cave_dehumid_plug
+        - switch.hall_dehumid_plug
+        action: switch.turn_off
+      - condition: state
+        entity_id: sensor.tariff_period
+        state: vazio
+      - entity_id: switch.192_168_1_143_battery_grid_charging
+        action: switch.turn_on
+    - conditions:
+      - condition: numeric_state
+        entity_id: sensor.192_168_1_143_battery
+        above: 25
+        below: 80
+      sequence:
+      - data:
+          entity_id: input_select.battery_strategy
+          option: normal
+        action: input_select.select_option
+    - conditions:
+      - condition: numeric_state
+        entity_id: sensor.192_168_1_143_battery
+        above: 80
+      sequence:
+      - data:
+          entity_id: input_select.battery_strategy
+          option: preserve
+        action: input_select.select_option
+      - action: script.enable_deferrable_loads
+  mode: restart
+- id: '1767701179454'
+  alias: 'HEMS: Control Heat Pump Target'
+  triggers:
+  - entity_id:
+    - input_boolean.hems_preheat_house
+    - input_boolean.hems_house_thermal_full
+    - sensor.192_168_1_143_pv_power
+    - sensor.192_168_1_143_load_power
+    trigger: state
+  - minutes: /5
+    trigger: time_pattern
+  actions:
+  - choose:
+    - conditions: '{{ current_temp <= 19.0 }}'
+      sequence:
+      - target:
+          entity_id: climate.tstat_877799_t6_thermostat
+        data:
+          temperature: 22.5
+        action: climate.set_temperature
+    - conditions:
+      - condition: or
+        conditions:
+        - condition: state
+          entity_id: input_boolean.hems_preheat_house
+          state: 'on'
+        - condition: template
+          value_template: '{{ surplus > 1000 and is_state(''input_boolean.hems_house_thermal_full'',
+            ''off'') }}'
+      sequence:
+      - target:
+          entity_id: climate.tstat_877799_t6_thermostat
+        data:
+          temperature: 22.5
+        action: climate.set_temperature
+    - conditions: []
+      sequence:
+      - target:
+          entity_id: climate.tstat_877799_t6_thermostat
+        data:
+          temperature: 19
+        action: climate.set_temperature
+  variables:
+    current_temp: '{{ state_attr(''climate.tstat_877799_t6_thermostat'', ''current_temperature'')
+      | float(0) }}'
+    pv: '{{ states(''sensor.192_168_1_143_pv_power'') | float(0) }}'
+    load: '{{ states(''sensor.192_168_1_143_load_power'') | float(0) }}'
+    surplus: '{{ pv - load }}'
+- id: '1767907640985'
+  alias: 'HEMS: Restore Normal Temperature'
+  description: ''
+  triggers:
+  - at: 08:00:00
+    trigger: time
+  actions:
+  - target:
+      entity_id: climate.tstat_877799_t6_thermostat
+    data:
+      temperature: 20
+    action: climate.set_temperature
+- id: '1767907764137'
+  alias: 'HEMS: Build Tomorrow Strategy (kWh Based)'
+  description: ''
+  triggers:
+  - at: '21:30:00'
+    trigger: time
+  actions:
+  - target:
+      entity_id: input_number.hems_target_soc_tonight
+    data:
+      value: '{{ target_soc }}'
+    action: input_number.set_value
+  - choose:
+    - conditions: '{{ target_soc >= 80 }}'
+      sequence:
+      - target:
+          entity_id:
+          - input_boolean.hems_precharge_battery
+          - input_boolean.hems_preheat_house
+        action: input_boolean.turn_on
+    - conditions: '{{ target_soc < 80 }}'
+      sequence:
+      - target:
+          entity_id:
+          - input_boolean.hems_precharge_battery
+          - input_boolean.hems_preheat_house
+        action: input_boolean.turn_off
+  - data:
+      name: HEMS Planner
+      message: 'Load={{ load_kwh }}kWh, EV={{ ev_kwh }}kWh, PV={{ pv_kwh }}kWh, Deficit={{
+        deficit }}kWh → Target SOC={{ target_soc }}%
+
+        '
+    action: logbook.log
+  variables:
+    load_kwh: '{{ states(''sensor.192_168_1_143_today_load_consumption'') | float(0)
+      }}'
+    ev_kwh: '{{ states(''input_number.ev_energy_needed_tomorrow_kwh'') | float(0)
+      }}'
+    pv_kwh: '{{ states(''sensor.solcast_pv_forecast_forecast_tomorrow'') | float(0)
+      }}'
+    batt_cap: '{{ states(''input_number.hems_battery_capacity_kwh'') | float(20.7)
+      }}'
+    deficit: '{{ max(0, (load_kwh + ev_kwh) - pv_kwh) }}'
+    required_soc: '{{ (deficit / batt_cap * 100) if batt_cap > 0 else 100 }}'
+    target_soc: '{{ [ [ required_soc + 10, 95 ] | min, 50 ] | max | round(0) }}'
+- id: '1768002011910'
+  alias: 'HEMS: Sun-Relative Solcast Updates'
+  description: Triggers updates relative to solar position to maximize accuracy within
+    10-call limit
+  triggers:
+  - event: sunrise
+    offset: -01:00:00
+    trigger: sun
+  - event: sunrise
+    offset: 03:00:00
+    trigger: sun
+  - event: sunrise
+    offset: 06:00:00
+    trigger: sun
+  - event: sunset
+    offset: -03:00:00
+    trigger: sun
+  - event: sunset
+    offset: -01:00:00
+    trigger: sun
+  actions:
+  - data: {}
+    action: solcast_solar.update_forecasts
+  mode: single

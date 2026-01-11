@@ -1,0 +1,25 @@
+# ems templates.yaml
+  - sensor:
+      - name: "Battery SOC"
+        state: "{{ state_attr('sensor.goodwe_battery', 'soc') }}"
+        unit_of_measurement: "%"
+        
+      - name: "Battery Charge Power"
+        state: "{{ state_attr('sensor.goodwe_battery', 'charge_power') | float }}"
+        unit_of_measurement: "W"
+        
+      - name: "Battery Discharge Power"
+        state: "{{ state_attr('sensor.goodwe_battery', 'discharge_power') | float }}"
+        unit_of_measurement: "W"
+        
+      - name: "Solar Production"
+        state: "{{ states('sensor.goodwe_pv_power') | float }}"
+        unit_of_measurement: "W"
+
+      - name: "Surplus Solar Power"
+        unit_of_measurement: "W"
+        state: >
+          {% set solar = states('sensor.inverter_pv_power') | float %}
+          {% set load = states('sensor.inverter_power') | float %}
+          {{ solar - load }}
+

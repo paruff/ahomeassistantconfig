@@ -1,0 +1,13 @@
+- sensor:
+    - name: "HEMS EV Azul Wind Power"
+      unique_id: hems_ev_azul_wind_power
+      unit_of_measurement: "W"
+      device_class: power
+      state_class: measurement
+      state: "{{ states('sensor.azul_wind_charger_power_2') | float(0) }}"
+
+    - name: "HEMS EV Azul Wind SOC"
+      unique_id: hems_ev_azul_wind_soc
+      unit_of_measurement: "%"
+      device_class: battery
+      state: "{{ states('sensor.azul_wind_battery') | float(0) }}"

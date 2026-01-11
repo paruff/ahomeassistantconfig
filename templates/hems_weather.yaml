@@ -1,0 +1,24 @@
+- sensor:
+    - name: "HEMS Outdoor Temperature"
+      unique_id: hems_outdoor_temperature
+      unit_of_measurement: "°C"
+      device_class: temperature
+      state_class: measurement
+      # Uses local WS2900 station first, falls back to Open-Meteo
+      state: >
+        {% set local = states('sensor.ws2900_v2_01_18_outdoor_temperature') %}
+        {% if is_number(local) %}
+          {{ local | float }}
+        {% else %}
+          {{ state_attr('weather.home', 'temperature') | float(0) }}
+        {% endif %}
+
+    - name: "HEMS Weather Condition"
+      unique_id: hems_weather_condition
+      state: "{{ states('weather.home') }}"
+
+- binary_sensor:
+    - name: "HEMS Is Raining"
+      unique_id: hems_is_raining
+      device_class: moisture
+      state: "{{ states('weather.home') == 'rainy' }}"

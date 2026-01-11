@@ -1,0 +1,1537 @@
+- id: '1741448853273'
+  alias: 'Turn off Entertainment Center '
+  description: ''
+  triggers:
+  - trigger: time
+    at: 00:00:00
+  conditions: []
+  actions:
+  - action: switch.turn_off
+    metadata: {}
+    data: {}
+    target:
+      area_id: tv_room
+      device_id: 54e74376b4a94199de0c932d3b5c2c22
+  mode: single
+- id: '1743274864994'
+  alias: Alert_Low Battery Notifications
+  description: ''
+  use_blueprint:
+    path: Blackshome/low-battery-notifications-and-actions.yaml
+    input:
+      include_easy_notify: enable_easy_notify
+      notify_device:
+      - 2265d9970fd335de3288c5ef041f694f
+      include_time: time_enabled
+      time: 07:00:00
+- id: '1743275085590'
+  alias: Alert_Weather forecast notification
+  description: ''
+  use_blueprint:
+    path: milperks/weather_notification.yaml
+    input:
+      weather_entity: weather.pirateweather
+      notify_device:
+      - 2265d9970fd335de3288c5ef041f694f
+      time: 08:00:00
+      notify_message:
+      - condition
+      - wind
+      - precipitation
+      - temperature
+- id: '1746093849109'
+  alias: High Power Consumption Alert & Load Shedding
+  description: High Power Consumption Alert
+  triggers:
+  - entity_id: sensor.house_consumption
+    above: 6500
+    for: 00:01:30
+    trigger: numeric_state
+  actions:
+  - data:
+      message: ⚠️ High Power Consumption! House is near 6.9 kVA limit.
+      title: Energy Overload Warning
+    action: notify.notify
+  - delay: 00:01:00
+  - condition: numeric_state
+    entity_id: sensor.house_consumption
+    above: 6800
+  - data:
+      message: "\U0001F6A8 ALERT! Load shedding activated to reduce power consumption."
+      title: Critical Energy Overload
+    action: notify.notify
+  - entity_id:
+    - switch.attic_dehumidifier_socket_1
+    - switch.dehumidifier_emerio_plug_dehumidifier_emerio_plug
+    - switch.azul_wind_charger
+    action: switch.turn_off
+  mode: single
+- id: '1751727739342'
+  alias: Cast to Google Hub kitchen
+  description: ''
+  use_blueprint:
+    path: kind3r/cast-and-re-cast-a-lovelace-view-to-a-google-hub.yaml
+    input:
+      player: media_player.kitchen_display
+      view: Kitchen
+      dashboard: Lovelace
+- &id001
+  id: hems_unified_dehumidifier_controller
+  alias: HEMS – Dehumidifier Manager (Refactored)
+  description: Staggered control based on solar availability and load shedding.
+  triggers:
+  - trigger: state
+    entity_id: binary_sensor.hems_dehumidifier_allowed
+    for: 00:02:00
+  actions:
+  - if:
+    - condition: state
+      entity_id: binary_sensor.hems_dehumidifier_allowed
+      state: 'on'
+    then:
+    - action: switch.turn_on
+      target:
+        entity_id: switch.cave_dehumidifier
+    - delay: 00:00:05
+    - action: switch.turn_on
+      target:
+        entity_id: switch.hall_dehumidifier
+    - delay: 00:00:05
+    - action: switch.turn_on
+      target:
+        entity_id: switch.attic_dehumidifier
+    else:
+    - action: switch.turn_off
+      target:
+        entity_id:
+        - switch.cave_dehumidifier
+        - switch.hall_dehumidifier
+        - switch.attic_dehumidifier
+  mode: queued
+  max: 10
+- *id001
+- *id001
+- *id001
+- *id001
+- id: '1767025234717'
+  alias: HEMS - Pro EV Controller (Solar-First)
+  description: 'Dynamic Tesla charging: Prioritizes 20kWh battery and house load over
+    EV.'
+  triggers:
+  - minutes: /5
+    trigger: time_pattern
+  - entity_id: binary_sensor.azul_wind_charger
+    to: 'on'
+    id: plugged_in
+    trigger: state
+  actions:
+  - choose:
+    - conditions:
+      - condition: template
+        value_template: '{{ battery_soc < min_battery_reserve or states(''sensor.azul_wind_battery'')
+          | float(0) >= target_ev_limit }}'
+      sequence:
+      - action: switch.turn_off
+        target:
+          entity_id: switch.azul_wind_charger
+      - action: input_text.set_value
+        target:
+          entity_id: input_text.hems_suggestion
+        data:
+          value: "\U0001F697 EV STOPPED: House battery below reserve or Car full."
+    - conditions:
+      - condition: template
+        value_template: '{{ surplus > (current_amps + 1) * 230 and current_amps <
+          13 }}'
+      sequence:
+      - action: script.teslachargingincamp
+      - action: logbook.log
+        data:
+          name: HEMS EV
+          message: 'Increasing charge speed: Surplus is {{ surplus }}W'
+    - conditions:
+      - condition: template
+        value_template: '{{ surplus < (current_amps * 230) or battery_soc < (min_battery_reserve
+          + 5) }}'
+      sequence:
+      - action: script.teslachargingdecamp
+      - action: logbook.log
+        data:
+          name: HEMS EV
+          message: 'Decreasing charge speed: Protecting house battery.'
+  variables:
+    solar_gen: '{{ states(''sensor.192_168_1_143_pv_power'') | float(0) }}'
+    house_load: '{{ states(''sensor.192_168_1_143_load_power'') | float(0) }}'
+    car_draw: '{{ states(''sensor.azul_wind_charger_power_2'') | float(0) * 1000 }}'
+    surplus: '{{ solar_gen - (house_load - car_draw) }}'
+    battery_soc: '{{ states(''sensor.192_168_1_143_battery'') | float(0) }}'
+    min_battery_reserve: 50
+    target_ev_limit: 80
+    min_surplus_to_start: 1500
+    current_amps: '{{ states(''number.azul_wind_charging_amps'') | int(5) }}'
+  mode: restart
+- id: '1767082763090'
+  alias: Quick Appliance Log
+  description: Quickly log appliance usage with a button
+  triggers:
+  - event_type: call_service
+    event_data:
+      domain: input_button
+      service: press
+      service_data:
+        entity_id: input_button.log_appliance
+    trigger: event
+  actions:
+  - variables:
+      appliance_name: '{{ states(''input_select.appliance_to_log'') }}'
+      power_usage: '{{ states(''sensor.current_power_draw'') | float(0) | round(0)
+        }}'
+      timestamp: '{{ now().strftime(''%H:%M'') }}'
+  - target:
+      entity_id: input_text.appliance_log_today
+    data:
+      value: "{{ states('input_text.appliance_log_today') ~\n   ' | ' ~ timestamp
+        ~ ' - ' ~ appliance_name ~ \n   ' (' ~ power_usage ~ 'W)' \n   if states('input_text.appliance_log_today')
+        != '' \n   else timestamp ~ ' - ' ~ appliance_name ~ ' (' ~ power_usage ~
+        'W)' }}\n"
+    action: input_text.set_value
+  - data:
+      title: Appliance Logged
+      message: Logged {{ appliance_name }} at {{ timestamp }} ({{ power_usage }}W)
+      notification_id: appliance_logged
+    action: persistent_notification.create
+  - delay: 00:00:30
+  - data:
+      notification_id: appliance_logged
+    action: persistent_notification.dismiss
+  mode: single
+- id: '1767083116666'
+  alias: Initialize Appliance Inventory
+  description: Create initial appliance database from monitored plugs
+  triggers:
+  - event: start
+    trigger: homeassistant
+  actions:
+  - target:
+      entity_id: input_text.appliance_inventory_database
+    data:
+      value: "{\n  \"monitored\": [\n    {\n      \"name\": \"Kitchen Fridge\",\n
+        \     \"entity_power\": \"sensor.plug_m_3_current_active_power\",\n      \"entity_energy\":
+        \"sensor.plug_m_3_total_energy_consumed\",\n      \"type\": \"refrigerator\",\n
+        \     \"typical_power_w\": 26,\n      \"daily_energy_kwh\": 0.62,\n      \"notes\":
+        \"Monitored via IKEA plug\",\n      \"last_updated\": \"{{ now().isoformat()
+        }}\"\n    },\n    {\n      \"name\": \"Garage Freezer\",\n      \"entity_power\":
+        \"sensor.garage_freezer_plug_current_active_power\",\n      \"entity_energy\":
+        \"sensor.garage_freezer_plug_total_energy_consumed\",\n      \"type\": \"freezer\",\n
+        \     \"typical_power_w\": 78,\n      \"daily_energy_kwh\": 1.87,\n      \"notes\":
+        \"Uses 78W when running\",\n      \"last_updated\": \"{{ now().isoformat()
+        }}\"\n    },\n    {\n      \"name\": \"Dryer\",\n      \"entity_power\": \"sensor.dryer_current_active_power\",\n
+        \     \"entity_energy\": \"sensor.dryer_total_energy_consumed\",\n      \"type\":
+        \"dryer\",\n      \"typical_power_w\": 2500,\n      \"daily_energy_kwh\":
+        0.5,\n      \"notes\": \"Standby: 0.8W, Active: ~2500W\",\n      \"last_updated\":
+        \"{{ now().isoformat() }}\"\n    },\n    {\n      \"name\": \"Washing Machine\",\n
+        \     \"entity_power\": \"sensor.garage_washer_plug_current_active_power\",\n
+        \     \"entity_energy\": \"sensor.garage_washer_plug_total_energy_consumed\",\n
+        \     \"type\": \"washer\",\n      \"typical_power_w\": 500,\n      \"daily_energy_kwh\":
+        0.25,\n      \"notes\": \"Standby: 0.3W, Active: ~500W\",\n      \"last_updated\":
+        \"{{ now().isoformat() }}\"\n    },\n    {\n      \"name\": \"Cave Dehumidifier\",\n
+        \     \"entity_power\": \"sensor.cave_dehumid_plug_current_active_power\",\n
+        \     \"entity_energy\": \"sensor.cave_dehumid_plug_total_energy_consumed\",\n
+        \     \"type\": \"dehumidifier\",\n      \"typical_power_w\": 200,\n      \"daily_energy_kwh\":
+        0.8,\n      \"notes\": \"Currently off\",\n      \"last_updated\": \"{{ now().isoformat()
+        }}\"\n    },\n    {\n      \"name\": \"Hall Dehumidifier\",\n      \"entity_power\":
+        \"sensor.hall_dehumid_plug_current_active_power\",\n      \"entity_energy\":
+        \"sensor.hall_dehumid_plug_total_energy_consumed\",\n      \"type\": \"dehumidifier\",\n
+        \     \"typical_power_w\": 200,\n      \"daily_energy_kwh\": 0.6,\n      \"notes\":
+        \"Currently off\",\n      \"last_updated\": \"{{ now().isoformat() }}\"\n
+        \   },\n    {\n      \"name\": \"Attic Dehumidifier\",\n      \"entity_power\":
+        \"sensor.plug_5_current_active_power\",\n      \"entity_energy\": \"sensor.plug_5_total_energy_consumed\",\n
+        \     \"type\": \"dehumidifier\",\n      \"typical_power_w\": 200,\n      \"daily_energy_kwh\":
+        1.0,\n      \"notes\": \"Currently off\",\n      \"last_updated\": \"{{ now().isoformat()
+        }}\"\n    }\n  ],\n  \"unmonitored\": [\n    {\n      \"name\": \"Water Pump\",\n
+        \     \"type\": \"pump\",\n      \"estimated_power_w\": 750,\n      \"estimated_daily_uses\":
+        15,\n      \"estimated_duration_min\": 2,\n      \"estimated_daily_energy_kwh\":
+        0.38,\n      \"detection_method\": \"power_signature\",\n      \"notes\":
+        \"Detect via whole-house power (500-800W spikes)\"\n    },\n    {\n      \"name\":
+        \"Heat Pump\",\n      \"type\": \"heat_pump\",\n      \"estimated_power_w\":
+        2500,\n      \"estimated_daily_hours\": 8,\n      \"estimated_daily_energy_kwh\":
+        20.0,\n      \"detection_method\": \"power_signature + schedule\",\n      \"notes\":
+        \"Starts around 10 AM daily\"\n    },\n    {\n      \"name\": \"Kettle\",\n
+        \     \"type\": \"kettle\",\n      \"estimated_power_w\": 2200,\n      \"estimated_daily_uses\":
+        4,\n      \"estimated_duration_min\": 3,\n      \"estimated_daily_energy_kwh\":
+        0.44,\n      \"detection_method\": \"power_signature\",\n      \"notes\":
+        \"Short, high-power bursts at meal times\"\n    },\n    {\n      \"name\":
+        \"Stove/Oven\",\n      \"type\": \"stove\",\n      \"estimated_power_w\":
+        1500,\n      \"estimated_daily_hours\": 1.5,\n      \"estimated_daily_energy_kwh\":
+        2.25,\n      \"detection_method\": \"power_signature\",\n      \"notes\":
+        \"Multiple elements, variable power\"\n    },\n    {\n      \"name\": \"Dishwasher\",\n
+        \     \"type\": \"dishwasher\",\n      \"estimated_power_w\": 1200,\n      \"estimated_daily_cycles\":
+        1,\n      \"estimated_duration_min\": 120,\n      \"estimated_daily_energy_kwh\":
+        2.4,\n      \"detection_method\": \"power_signature + sound\",\n      \"notes\":
+        \"Long cycle, heating element spikes\"\n    },\n    {\n      \"name\": \"Lighting\",\n
+        \     \"type\": \"lighting\",\n      \"estimated_power_w\": 400,\n      \"estimated_daily_hours\":
+        5,\n      \"estimated_daily_energy_kwh\": 2.0,\n      \"detection_method\":
+        \"estimation\",\n      \"notes\": \"Evening usage, gradual increase\"\n    }\n
+        \ ],\n  \"summary\": {\n    \"total_monitored_power_w\": 0,\n    \"total_monitored_energy_kwh\":
+        0,\n    \"total_estimated_power_w\": 0,\n    \"total_estimated_energy_kwh\":
+        0,\n    \"last_calculated\": \"{{ now().isoformat() }}\"\n  }\n}\n"
+    action: input_text.set_value
+- id: '1767083496473'
+  alias: Detect Water Pump Usage
+  description: Identify water pump from whole-house power signature
+  triggers:
+  - entity_id: sensor.on_grid_export_power
+    above: 500
+    for:
+      seconds: 10
+    trigger: numeric_state
+  actions:
+  - delay:
+      minutes: 3
+  - variables:
+      power_end: '{{ states(''sensor.on_grid_export_power'') | float }}'
+      duration_seconds: '{{ (as_timestamp(now()) - as_timestamp(start_time)) | round(0)
+        }}
+
+        '
+      avg_power: '{{ (power_start + power_end) / 2 }}'
+  - choose:
+    - conditions:
+      - condition: template
+        value_template: "{{ pump_power_range[0] <= avg_power <= pump_power_range[1]
+          \n   and 30 <= duration_seconds <= 180 }}\n"
+      sequence:
+      - target:
+          entity_id: counter.water_pump_detections_today
+        action: counter.increment
+      - data:
+          appliance_name: Water Pump
+          power_w: '{{ avg_power | round(0) }}'
+          duration_seconds: '{{ duration_seconds }}'
+          timestamp: '{{ start_time.isoformat() }}'
+        action: script.update_appliance_usage
+      - data:
+          name: "\U0001F4A7 Water Pump Detected"
+          message: '{{ avg_power|round(0) }}W for {{ duration_seconds }}s (Today:
+            {{ states(''counter.water_pump_detections_today'') }} uses)
+
+            '
+        action: logbook.log
+  variables:
+    power_start: '{{ states(''sensor.on_grid_export_power'') | float }}'
+    start_time: '{{ now() }}'
+    pump_power_range:
+    - 500
+    - 800
+- id: '1767097555369'
+  alias: HEMS - Battery Reserve Monitor
+  description: Monitor battery vs reserve level
+  triggers:
+  - entity_id: sensor.battery_soc
+    above: 0
+    for:
+      minutes: 2
+    trigger: numeric_state
+  actions:
+  - variables:
+      battery: '{{ states(''sensor.battery_soc'') | float(0) }}'
+      reserve: '{{ states(''input_number.battery_reserve_minimum'') | float(40) }}'
+  - choose:
+    - conditions:
+      - condition: template
+        value_template: '{{ battery < reserve }}'
+      - condition: template
+        value_template: '{{ (battery - 2) >= reserve }} # Was above reserve recently
+
+          '
+      sequence:
+      - data:
+          title: "\U0001F50B Battery Below Reserve"
+          message: 'Now at {{ battery | round(0) }}% (Reserve: {{ reserve | round(0)
+            }}%)'
+        action: persistent_notification.create
+    - conditions:
+      - condition: template
+        value_template: '{{ battery >= reserve }}'
+      - condition: template
+        value_template: '{{ (battery - 2) < reserve }} # Was below reserve recently
+
+          '
+      sequence:
+      - data:
+          title: ✅ Battery Above Reserve
+          message: 'Now at {{ battery | round(0) }}% (Reserve: {{ reserve | round(0)
+            }}%)'
+        action: persistent_notification.create
+- id: '1767098645677'
+  alias: HEMS - Power Monitoring System
+  description: Track power changes for appliance detection
+  triggers:
+  - seconds: /2
+    trigger: time_pattern
+  actions:
+  - target:
+      entity_id: input_number.last_power_value
+    data:
+      value: '{{ current_power }}'
+    action: input_number.set_value
+  - target:
+      entity_id: input_number.power_delta_value
+    data:
+      value: '{{ current_power - last_power }}'
+    action: input_number.set_value
+  - condition: template
+    value_template: '{{ (current_power - last_power) | abs > 100 }}'
+  - data:
+      name: Power Change
+      message: '{{ current_power | round(0) }}W (Δ: {{ (current_power - last_power)
+        | round(0) }}W)'
+    action: logbook.log
+  variables:
+    current_power: '{{ states(''sensor.on_grid_export_power'') | float(0) }}'
+    last_power: '{{ states(''input_number.last_power_value'') | float(0) }}'
+- id: '1767100045359'
+  alias: HEMS - Heat Pump Runtime Monitor
+  description: Track heat pump runtimes
+  triggers:
+  - minutes: /5
+    trigger: time_pattern
+  actions:
+  - choose:
+    - conditions:
+      - condition: template
+        value_template: '{{ house_hp_running }}'
+      sequence:
+      - target:
+          entity_id: input_number.house_hp_runtime_today
+        data:
+          value: 5
+        action: input_number.increment
+    - conditions:
+      - condition: template
+        value_template: '{{ water_hp_running }}'
+      sequence:
+      - target:
+          entity_id: input_number.hot_water_hp_runtime_today
+        data:
+          value: 5
+        action: input_number.increment
+  - variables:
+      current_power: '{{ states(''sensor.on_grid_export_power'') | float(0) }}'
+      time_of_day: '{{ now().strftime(''%H:%M'') }}'
+  - choose:
+    - conditions:
+      - condition: template
+        value_template: '{{ house_hp_running }}'
+      - condition: template
+        value_template: '{{ current_power < 500 }}'
+      - condition: template
+        value_template: '{{ not (''09:00'' <= time_of_day <= ''18:00'') }}
+
+          '
+      sequence:
+      - target:
+          entity_id: binary_sensor.house_heat_pump_running
+        action: binary_sensor.turn_off
+  variables:
+    house_hp_running: '{{ is_state(''binary_sensor.house_heat_pump_running'', ''on'')
+      }}'
+    water_hp_running: '{{ is_state(''binary_sensor.water_heat_pump_running'', ''on'')
+      }}'
+- id: '1767104385099'
+  alias: Setup Test Scenario
+  description: ''
+  triggers:
+  - entity_id: input_select.hems_test_scenario
+    trigger: state
+  conditions:
+  - condition: state
+    entity_id: input_boolean.hems_test_mode
+    state: 'on'
+  actions:
+  - choose:
+    - conditions:
+      - condition: state
+        entity_id: input_select.hems_test_scenario
+        state: Battery Low Alert
+      sequence:
+      - target:
+          entity_id: input_number.test_mock_battery_soc
+        data:
+          value: 25
+        action: input_number.set_value
+      - target:
+          entity_id: input_number.test_mock_surplus_solar
+        data:
+          value: 0
+        action: input_number.set_value
+    - conditions:
+      - condition: state
+        entity_id: input_select.hems_test_scenario
+        state: Solar Surplus EV Charging
+      sequence:
+      - target:
+          entity_id: input_number.test_mock_battery_soc
+        data:
+          value: 60
+        action: input_number.set_value
+      - target:
+          entity_id: input_number.test_mock_surplus_solar
+        data:
+          value: 2500
+        action: input_number.set_value
+      - target:
+          entity_id: sensor.azul_wind_battery_soc
+        data:
+          value: 40
+        action: input_number.set_value
+    - conditions:
+      - condition: state
+        entity_id: input_select.hems_test_scenario
+        state: Load Shedding Active
+      sequence:
+      - target:
+          entity_id: input_number.test_mock_grid_power
+        data:
+          value: 7000
+        action: input_number.set_value
+- id: '1767104480837'
+  alias: Validate Battery Alert
+  description: ''
+  triggers:
+  - entity_id: sensor.battery_reserve_ok
+    to: 'off'
+    trigger: state
+  conditions:
+  - condition: state
+    entity_id: input_boolean.hems_test_mode
+    state: 'on'
+  actions:
+  - data:
+      name: ✅ ASSERTION PASSED
+      message: Battery alert correctly triggered when SOC below reserve
+    action: logbook.log
+- id: '1767104781985'
+  alias: Validate EV Solar Charging
+  description: ''
+  triggers:
+  - entity_id: switch.azul_wind_charger
+    to: 'on'
+    trigger: state
+  conditions:
+  - condition: state
+    entity_id: input_boolean.hems_test_mode
+    state: 'on'
+  - condition: state
+    entity_id: input_select.hems_test_scenario
+    state: Solar Surplus EV Charging
+  actions:
+  - data:
+      name: ✅ ASSERTION PASSED
+      message: EV charging correctly started with solar surplus
+    action: logbook.log
+- id: '1767104831966'
+  alias: Validate Load Shedding
+  description: ''
+  triggers:
+  - entity_id: sensor.load_shedding_active
+    to: 'on'
+    trigger: state
+  conditions:
+  - condition: state
+    entity_id: input_boolean.hems_test_mode
+    state: 'on'
+  actions:
+  - data:
+      name: ✅ ASSERTION PASSED
+      message: Load shedding correctly activated above contract limit
+    action: logbook.log
+- id: '1767119842372'
+  alias: HEMS - Stone House Daikin Solar Optimization
+  description: Optimize Daikin for stone house thermal mass
+  triggers:
+  - at: 09:30:00
+    trigger: time
+  - at: '11:00:00'
+    trigger: time
+  - at: '14:00:00'
+    trigger: time
+  - entity_id: sensor.solar_forecast_today
+    trigger: state
+  actions:
+  - choose:
+    - conditions:
+      - condition: template
+        value_template: '{{ trigger.platform == ''time'' and trigger.at == ''09:30:00''
+          }}'
+      - condition: template
+        value_template: '{{ solar_today > 10 }}'
+      sequence:
+      - target:
+          entity_id: climate.your_daikin_entity
+        data:
+          temperature: '{{ preheat_target }}'
+        action: climate.set_temperature
+      - data:
+          title: "\U0001F305 Stone House Pre-Heating"
+          message: "**Stone thermal mass optimization:**\n\nToday's solar: {{ solar_today
+            }} kWh\nPre-heat target: {{ preheat_target }}°C\nCurrent: {{ indoor_temp
+            }}°C\n\n**Strategy:** Heat stone mass now, \nit will radiate heat until
+            evening.\n"
+        action: persistent_notification.create
+  - choose:
+    - conditions:
+      - condition: template
+        value_template: "{{ trigger.platform == 'time' and \n   trigger.at in ['11:00:00',
+          '14:00:00'] and\n   solar_now > 2000 and\n   indoor_temp < preheat_target
+          }}\n"
+      sequence:
+      - target:
+          entity_id: climate.your_daikin_entity
+        action: climate.turn_on
+      - data:
+          name: HEMS Stone House
+          message: 'Stone heating: Solar {{ solar_now }}W, Target {{ preheat_target
+            }}°C, Stone absorbing heat
+
+            '
+        action: logbook.log
+  mode: queued
+  max: 5
+  variables:
+    solar_today: '{{ states(''sensor.solar_forecast_today'') | float(0) }}'
+    solar_now: '{{ states(''sensor.solar_power'') | float(0) }}'
+    indoor_temp: '{{ states(''sensor.indoor_temperature'') | float(20) }}'
+    outdoor_temp: '{{ states(''sensor.outdoor_temperature'') | float(15) }}'
+    thermal_mass_factor: 0.8
+    heat_loss_rate: 0.3
+    preheat_target: "{% set base = 20.0 %} {% if solar_today > 15 %}\n  {{ base +
+      1.5 }}\n{% elif solar_today > 10 %}\n  {{ base + 1.0 }}\n{% elif solar_today
+      > 5 %}\n  {{ base + 0.5 }}\n{% else %}\n  {{ base }}\n{% endif %}\n"
+- id: '1767119941526'
+  alias: HEMS - Retired Couple Schedule
+  description: Optimize for home-all-day retired couple
+  triggers:
+  - at: 07:30:00
+    trigger: time
+  - entity_id: input_select.daily_schedule_mode
+    trigger: state
+  actions:
+  - data:
+      title: "\U0001F4C5 Today's Optimized Schedule"
+      message: '**Mode:** {{ schedule_mode }}
+
+        **Solar Forecast:** {{ solar_today }} kWh
+
+
+        **Recommended Schedule:**
+
+        • Shower: {{ from_json(appliance_schedule).shower }}
+
+        • Breakfast: {{ from_json(appliance_schedule).breakfast_cooking }}
+
+        • Lunch: {{ from_json(appliance_schedule).lunch_cooking }}
+
+        • Dinner: {{ from_json(appliance_schedule).dinner_cooking }}
+
+        • Dishwasher: {{ from_json(appliance_schedule).dishwasher }}
+
+        • Washing: {{ from_json(appliance_schedule).washing }}
+
+        • Dryer: {{ from_json(appliance_schedule).dryer }}
+
+
+        **Heating Window:** {{ from_json(appliance_schedule).heating_peak }}
+
+        '
+    action: persistent_notification.create
+  mode: queued
+  variables:
+    schedule_mode: '{{ states(''input_select.daily_schedule_mode'') }}'
+    solar_today: '{{ states(''sensor.solar_forecast_today'') | float(0) }}'
+    appliance_schedule: "{% if schedule_mode == 'Normal (Home All Day)' %}\n  {\n
+      \   \"shower\": \"09:00\",\n    \"breakfast_cooking\": \"08:30\",\n    \"lunch_cooking\":
+      \"13:00\",\n    \"dinner_cooking\": \"19:00\",\n    \"dishwasher\": \"14:00\",\n
+      \   \"washing\": \"11:00\",\n    \"dryer\": \"12:00\",\n    \"heating_peak\":
+      \"11:00-15:00\"\n  }\n{% elif schedule_mode == 'Shopping Day' %}\n  {\n    \"shower\":
+      \"08:00\",\n    \"breakfast_cooking\": \"07:45\",\n    \"lunch_cooking\": \"14:00\",\n
+      \   \"dinner_cooking\": \"20:00\",\n    \"dishwasher\": \"21:00\",\n    \"washing\":
+      \"10:00\",\n    \"dryer\": \"11:00\",\n    \"heating_peak\": \"15:00-17:00\"\n
+      \ }\n{% else %}\n  {\n    \"shower\": \"09:00\",\n    \"breakfast_cooking\":
+      \"08:30\",\n    \"lunch_cooking\": \"13:00\",\n    \"dinner_cooking\": \"19:00\",\n
+      \   \"dishwasher\": \"20:00\",\n    \"washing\": \"11:00\",\n    \"dryer\":
+      \"12:00\",\n    \"heating_peak\": \"11:00-15:00\"\n  }\n{% endif %}\n"
+- id: '1767120154998'
+  alias: HEMS - Solar-First Appliance Timing
+  description: ''
+  triggers: []
+  conditions: []
+  actions: []
+  mode: single
+- id: '1767120210798'
+  alias: HEMS - Portuguese Tariff Management
+  description: Optimize for Goldenergy Bi-Horária tariffs
+  triggers:
+  - at: '{{ states(''input_datetime.low_tariff_start'') }}'
+    trigger: time
+  - at: '{{ states(''input_datetime.low_tariff_end'') }}'
+    trigger: time
+  - at: 00:00:00
+    trigger: time
+  - at: '23:59:59'
+    trigger: time
+  actions:
+  - data:
+      title: "{{ '\U0001F535 LOW Tariff Active' if is_low_tariff else '\U0001F534
+        HIGH Tariff Active' }}"
+      message: "**Current:** {{ current_day }} {{ '%02d:00' % current_hour }}\n**Tariff:**
+        {{ 'LOW (€0.09/kWh)' if is_low_tariff else 'HIGH (€0.19/kWh)' }}\n\n**Recommended
+        Actions:**\n{% for task in from_json(low_tariff_tasks) %}\n• {{ task }}\n{%
+        endfor %}\n\n**Next change:** {{\n  '07:00 (to HIGH)' if is_low_tariff and
+        current_hour < 7 else\n  '00:00 (to LOW)' if not is_low_tariff else\n  'Sunday
+        all day LOW' if current_day == 'Saturday' else\n  'Check schedule'\n}}\n"
+    action: persistent_notification.create
+  mode: queued
+  variables:
+    current_time: '{{ now() }}'
+    current_hour: '{{ now().hour }}'
+    current_day: '{{ now().strftime(''%A'') }}'
+    is_low_tariff: "{{\n  current_day == 'Sunday' or\n  (current_day == 'Saturday'
+      and current_hour < 7) or\n  (current_day in ['Monday','Tuesday','Wednesday','Thursday','Friday']
+      and\n   current_hour >= 0 and current_hour < 7)\n}}\n"
+    low_tariff_tasks: "{% if is_low_tariff %}\n  [\n    \"Grid charge battery\",\n
+      \   \"EV charging if needed\",\n    \"Run deferred appliances\",\n    \"Heat
+      water if low\"\n  ]\n{% else %}\n  [\n    \"Minimize grid usage\",\n    \"Use
+      solar/battery\",\n    \"Defer non-essential loads\"\n  ]\n{% endif %}\n"
+- id: '1767120412440'
+  alias: HEMS - Tesla Shopping Optimization
+  description: Optimize Tesla charging for shopping trips
+  triggers:
+  - at: 08:00:00
+    trigger: time
+  - entity_id: input_select.daily_schedule_mode
+    to: Shopping Day
+    trigger: state
+  - entity_id: sensor.tesla_battery_level
+    below: 60
+    trigger: numeric_state
+  actions:
+  - choose:
+    - conditions:
+      - condition: template
+        value_template: "{{ schedule_mode == 'Shopping Day' and \n   tesla_soc < shopping_trip_need
+          }}\n"
+      sequence:
+      - data:
+          title: "\U0001F6D2 Tesla Shopping Preparation"
+          message: "**Shopping Day Detected**\n\nCurrent SOC: {{ tesla_soc }}%\nNeeded:
+            {{ shopping_trip_need }}%\nShortfall: {{ shopping_trip_need - tesla_soc
+            }}%\n\n**Strategy:** {{ charging_strategy }}\n\n**Action:** {{ \n  'Will
+            charge from solar today' if solar_today > 15 \n  else 'Will charge tonight
+            at low tariff' \n}}\n"
+        action: persistent_notification.create
+      - target:
+          entity_id: number.tesla_charge_limit
+        data:
+          value: '{{ shopping_trip_need }}'
+        action: number.set_value
+  mode: queued
+  variables:
+    schedule_mode: '{{ states(''input_select.daily_schedule_mode'') }}'
+    tesla_soc: '{{ states(''sensor.tesla_battery_level'') | float(0) }}'
+    solar_today: '{{ states(''sensor.solar_forecast_today'') | float(0) }}'
+    shopping_trip_need: "{{\n  30 if schedule_mode == 'Shopping Day' else  \n  50
+      if schedule_mode == 'Visitors' else\n  20  \n}}\n"
+    charging_strategy: "{% if tesla_soc < shopping_trip_need %}\n  {% if solar_today
+      > 15 %}\n    \"Charge from solar today (11:00-15:00)\"\n  {% else %}\n    \"Charge
+      tonight (00:00-07:00 low tariff)\"\n  {% endif %}\n{% else %}\n  \"No charging
+      needed for today's activities\"\n{% endif %}\n"
+- id: '1767120566108'
+  alias: HEMS - Stone House Night Strategy
+  description: Optimize night temperature for stone house
+  triggers:
+  - at: '21:30:00'
+    trigger: time
+  - at: 07:00:00
+    trigger: time
+  - entity_id: sensor.outdoor_temperature
+    below: 10
+    for:
+      hours: 2
+    trigger: numeric_state
+  actions:
+  - choose:
+    - conditions:
+      - condition: template
+        value_template: '{{ trigger.platform == ''time'' and trigger.at == ''21:30:00''
+          }}'
+      sequence:
+      - target:
+          entity_id: climate.your_daikin_entity
+        data:
+          temperature: '{{ night_setpoint }}'
+        action: climate.set_temperature
+      - data:
+          title: "\U0001F319 Night Setback Activated"
+          message: '**Stone House Night Strategy:**
+
+
+            Outdoor: {{ outdoor_temp }}°C
+
+            Night setpoint: {{ night_setpoint }}°C
+
+            Current: {{ indoor_temp }}°C
+
+
+            **Thermal mass will maintain temperature**
+
+            **Morning warmup:** {{ morning_warmup_time }} minutes
+
+            **Tomorrow''s solar:** {{ solar_tomorrow }} kWh
+
+            '
+        action: persistent_notification.create
+  - choose:
+    - conditions:
+      - condition: template
+        value_template: '{{ trigger.platform == ''time'' and trigger.at == ''07:00:00''
+          }}'
+      - condition: template
+        value_template: '{{ solar_tomorrow > 5 }}'
+      sequence:
+      - target:
+          entity_id: climate.your_daikin_entity
+        data:
+          temperature: '20.0'
+        action: climate.set_temperature
+      - data:
+          name: HEMS Stone House
+          message: 'Morning recovery: Solar {{ solar_tomorrow }}kWh, Warmup {{ morning_warmup_time
+            }}min, Stone house advantage
+
+            '
+        action: logbook.log
+  mode: queued
+  variables:
+    outdoor_temp: '{{ states(''sensor.outdoor_temperature'') | float(0) }}'
+    indoor_temp: '{{ states(''sensor.indoor_temperature'') | float(20) }}'
+    solar_tomorrow: '{{ states(''sensor.solar_forecast_tomorrow'') | float(0) }}'
+    night_setpoint: "{{\n  18.5 if outdoor_temp > 5 else\n  19.0 if outdoor_temp >
+      0 else\n  19.5 \n}}\n"
+    morning_warmup_time: "{{\n  60 if outdoor_temp > 10 else\n  90 if outdoor_temp
+      > 5 else \n  120  \n}}\n"
+- &id002
+  id: appliance_signature_detector_simple_v2
+  alias: HEMS - Simple Appliance Detector v2
+  description: Basic appliance detection using efficient template sensors
+  triggers:
+  - entity_id: binary_sensor.significant_power_change_detected
+    to: 'on'
+    for:
+      seconds: 2
+    trigger: state
+  actions:
+  - variables:
+      current_power: '{{ states(''sensor.house_consumption'') | float(0) }}'
+      time_now: '{{ now().strftime(''%H:%M'') }}'
+      hour: '{{ now().hour }}'
+      minute: '{{ now().minute }}'
+      current_minutes: '{{ hour * 60 + minute }}'
+  - choose:
+    - conditions:
+      - condition: template
+        value_template: '{{ 500 <= current_power <= 800 }}'
+      - condition: template
+        value_template: "{% set not_meal_time = true %} {% for start, end in [[360,
+          540], [720, 840], [1080, 1200]] %}\n  {% if start <= current_minutes <=
+          end %}\n    {% set not_meal_time = false %}\n  {% endif %}\n{% endfor %}
+          {{ not_meal_time }}\n"
+      sequence:
+      - delay: 00:01:00
+      - variables:
+          power_after: '{{ states(''sensor.house_consumption'') | float(0) }}'
+      - if:
+        - condition: template
+          value_template: '{{ power_after < 400 }}'
+        then:
+        - target:
+            entity_id: counter.water_pump_detections_today
+          action: counter.increment
+        - target:
+            entity_id: input_text.last_detected_appliance
+          data:
+            value: Water Pump at {{ time_now }}
+          action: input_text.set_value
+  - choose:
+    - conditions:
+      - condition: template
+        value_template: '{{ 2000 <= current_power <= 3000 }}'
+      - condition: template
+        value_template: "{% set meal_time = false %} {% for start, end in [[420, 540],
+          [720, 840], [1020, 1200]] %}\n  {% if start <= current_minutes <= end %}\n
+          \   {% set meal_time = true %}\n  {% endif %}\n{% endfor %} {{ meal_time
+          }}\n"
+      sequence:
+      - delay: 00:03:00
+      - variables:
+          power_after: '{{ states(''sensor.house_consumption'') | float(0) }}'
+      - if:
+        - condition: template
+          value_template: '{{ power_after < 500 }}'
+        then:
+        - target:
+            entity_id: counter.kettle_uses_today
+          action: counter.increment
+        - target:
+            entity_id: input_text.last_detected_appliance
+          data:
+            value: Kettle at {{ time_now }}
+          action: input_text.set_value
+  mode: queued
+  max: 5
+- *id002
+- *id002
+- *id002
+- id: appliance_signature_detector_v2
+  alias: HEMS - Unified Appliance Signature Detector
+  description: Detects and logs appliance usage via power signatures, runtime patterns,
+    and confirmation logic
+  triggers:
+  - entity_id: sensor.house_consumption
+    above: 50
+    for:
+      seconds: 5
+    id: power_monitor
+    trigger: numeric_state
+  - minutes: /5
+    id: periodic_check
+    trigger: time_pattern
+  actions:
+  - choose:
+    - conditions:
+      - condition: template
+        value_template: '{{ trigger.id == ''periodic_check'' }}'
+      sequence:
+      - condition: state
+        entity_id: binary_sensor.house_heat_pump_running
+        state: 'on'
+      - variables:
+          runtime_minutes: "{% if states('input_number.house_hp_runtime_today') %}\n
+            \ {{ states('input_number.house_hp_runtime_today') | float }}\n{% else
+            %}\n  0\n{% endif %}\n"
+      - condition: template
+        value_template: '{{ runtime_minutes > 240 and current_power < 500 }}'
+      - target:
+          entity_id: binary_sensor.house_heat_pump_running
+        action: binary_sensor.turn_off
+      - data:
+          name: HEMS Detection
+          message: Heat pump auto-stopped after {{ runtime_minutes|round(0) }} min
+            (low power)
+        action: logbook.log
+      - condition: state
+        entity_id: input_boolean.dishwasher_running
+        state: 'on'
+      - condition: template
+        value_template: '{{ current_power < 100 }}'
+      - delay: 00:10:00
+      - condition: template
+        value_template: '{{ states(''sensor.house_consumption'') | float(0) < 100
+          }}'
+      - target:
+          entity_id: input_boolean.dishwasher_running
+        action: input_boolean.turn_off
+      - data:
+          name: HEMS Detection
+          message: Dishwasher cycle completed
+        action: logbook.log
+    default:
+    - variables:
+        initial_power: '{{ current_power }}'
+        detected_appliance: ''
+        detection_confidence: 0
+        appliance_list: '{{ appliances }}'
+    - repeat:
+        count: '{{ appliance_list | length }}'
+        sequence:
+        - variables:
+            appliance: '{{ appliance_list[repeat.index - 1] }}'
+            in_power_range: '{{ appliance.power_range[0] <= initial_power <= appliance.power_range[1]
+              }}
+
+              '
+            in_typical_time: "{% if appliance.typical_times and appliance.typical_times|length
+              > 0 %}\n  {% set current_minutes = now().hour * 60 + now().minute %}\n
+              \ {% set found_time = false %}\n  {% for range_str in appliance.typical_times
+              %}\n    {% if range_str and ':' in range_str %}\n      {% set parts
+              = range_str.split('-') %}\n      {% if parts|length == 2 %}\n        {%
+              set start = parts[0].split(':') %}\n        {% set end = parts[1].split(':')
+              %}\n        {% set start_minutes = start[0]|int * 60 + start[1]|int
+              %}\n        {% set end_minutes = end[0]|int * 60 + end[1]|int %}\n        {%
+              if start_minutes <= current_minutes <= end_minutes %}\n          {%
+              set found_time = true %}\n        {% endif %}\n      {% endif %}\n    {%
+              endif %}\n  {% endfor %}\n  {{ found_time }}\n{% else %}\n  true\n{%
+              endif %}\n"
+            in_exclude_time: "{% if appliance.exclude_times and appliance.exclude_times|length
+              > 0 %}\n  {% set current_minutes = now().hour * 60 + now().minute %}\n
+              \ {% set found_exclude = false %}\n  {% for range_str in appliance.exclude_times
+              %}\n    {% if range_str and ':' in range_str %}\n      {% set parts
+              = range_str.split('-') %}\n      {% if parts|length == 2 %}\n        {%
+              set start = parts[0].split(':') %}\n        {% set end = parts[1].split(':')
+              %}\n        {% set start_minutes = start[0]|int * 60 + start[1]|int
+              %}\n        {% set end_minutes = end[0]|int * 60 + end[1]|int %}\n        {%
+              if start_minutes <= current_minutes <= end_minutes %}\n          {%
+              set found_exclude = true %}\n        {% endif %}\n      {% endif %}\n
+              \   {% endif %}\n  {% endfor %}\n  {{ found_exclude }}\n{% else %}\n
+              \ false\n{% endif %}\n"
+            should_check: '{{ in_power_range and not in_exclude_time and in_typical_time
+              }}
+
+              '
+        - if:
+          - condition: template
+            value_template: '{{ should_check }}'
+          then:
+          - variables:
+              detected_appliance: '{{ appliance }}'
+              detection_confidence: 70
+          - delay:
+              seconds: '{{ appliance.confirmation_time }}'
+          - variables:
+              confirmed_power: '{{ states(''sensor.house_consumption'') | float(0)
+                }}'
+              power_stable: '{{ (confirmed_power - initial_power)|abs < (appliance.power_range[1]
+                * 0.2) }}
+
+                '
+          - if:
+            - condition: template
+              value_template: '{{ power_stable }}'
+            then:
+            - variables:
+                detection_confidence: 95
+            - target:
+                entity_id: '{{ appliance.entity_counter }}'
+              action: counter.increment
+            - if:
+              - condition: template
+                value_template: '{{ ''control_entity'' in appliance and appliance.control_entity
+                  }}'
+              then:
+              - target:
+                  entity_id: '{{ appliance.control_entity }}'
+                action: "{% if 'binary_sensor' in appliance.control_entity %}\n  binary_sensor.turn_on\n{%
+                  elif 'input_boolean' in appliance.control_entity %}\n  input_boolean.turn_on\n{%
+                  endif %}\n"
+            - if:
+              - condition: template
+                value_template: '{{ appliance.key == ''house_heat_pump'' }}'
+              then:
+              - target:
+                  entity_id: input_datetime.house_hp_start_time
+                data:
+                  datetime: '{{ now().strftime(''%Y-%m-%d %H:%M:%S'') }}'
+                action: input_datetime.set_datetime
+            - target:
+                entity_id: input_text.last_detected_appliance
+              data:
+                value: '{{ appliance.name }} detected at {{ time_of_day }}  ({{ initial_power|round(0)
+                  }}W, {{ detection_confidence }}% confidence)
+
+                  '
+              action: input_text.set_value
+            - data:
+                name: HEMS Detection
+                message: '{{ appliance.name }} CONFIRMED: {{ initial_power|round(0)
+                  }}W at {{ time_of_day }} {% if ''control_entity'' in appliance and
+                  appliance.control_entity %} (control entity activated){% endif %}
+
+                  '
+              action: logbook.log
+            else:
+            - data:
+                name: HEMS Detection
+                message: '{{ appliance.name }} suspected but not confirmed:  {{ initial_power|round(0)
+                  }}W → {{ confirmed_power|round(0) }}W
+
+                  '
+              action: logbook.log
+    - if:
+      - condition: template
+        value_template: '{{ detected_appliance == '''' and 500 <= initial_power <=
+          800 }}'
+      - condition: template
+        value_template: "{% set current_minutes = now().hour * 60 + now().minute %}
+          {% set not_meal_time = true %} {% for range_str in ['06:00-09:00', '12:00-14:00',
+          '18:00-20:00'] %}\n  {% set parts = range_str.split('-') %}\n  {% if parts|length
+          == 2 %}\n    {% set start = parts[0].split(':') %}\n    {% set end = parts[1].split(':')
+          %}\n    {% set start_minutes = start[0]|int * 60 + start[1]|int %}\n    {%
+          set end_minutes = end[0]|int * 60 + end[1]|int %}\n    {% if start_minutes
+          <= current_minutes <= end_minutes %}\n      {% set not_meal_time = false
+          %}\n    {% endif %}\n  {% endif %}\n{% endfor %} {{ not_meal_time }}\n"
+      then:
+      - delay: 00:00:45
+      - variables:
+          final_power: '{{ states(''sensor.house_consumption'') | float(0) }}'
+      - if:
+        - condition: template
+          value_template: '{{ final_power < 300 }}'
+        then:
+        - target:
+            entity_id: counter.water_pump_detections_today
+          action: counter.increment
+        - target:
+            entity_id: input_text.last_detected_appliance
+          data:
+            value: Water Pump (short cycle) at {{ time_of_day }} ({{ initial_power|round(0)
+              }}W)
+          action: input_text.set_value
+        - data:
+            name: HEMS Detection
+            message: 'Water Pump short cycle: {{ initial_power|round(0) }}W at {{
+              time_of_day }}'
+          action: logbook.log
+  mode: queued
+  max: 10
+  variables:
+    current_power: '{{ states(''sensor.house_consumption'') | float(0) }}'
+    time_of_day: '{{ now().strftime(''%H:%M'') }}'
+    day_of_week: '{{ now().strftime(''%A'') }}'
+    appliances: "{{\n  [\n    {\n      'key': 'water_pump',\n      'name': 'Water
+      Pump',\n      'power_range': [500, 800],\n      'duration_range': [30, 180],\n
+      \     'typical_times': [],\n      'exclude_times': ['06:00-09:00', '12:00-14:00',
+      '18:00-20:00'],\n      'confirmation_time': 15,\n      'entity_counter': 'counter.water_pump_detections_today'\n
+      \   },\n    {\n      'key': 'kettle',\n      'name': 'Kettle',\n      'power_range':
+      [2000, 3000],\n      'duration_range': [120, 300],\n      'typical_times': ['07:00-09:00',
+      '12:00-14:00', '17:00-20:00'],\n      'exclude_times': [],\n      'confirmation_time':
+      30,\n      'entity_counter': 'counter.kettle_uses_today'\n    },\n    {\n      'key':
+      'house_heat_pump',\n      'name': 'House Heat Pump',\n      'power_range': [1000,
+      3000],\n      'duration_range': [600, 7200],\n      'typical_times': ['09:30-10:30',
+      '14:00-16:00'],\n      'exclude_times': [],\n      'confirmation_time': 600,\n
+      \     'entity_counter': 'counter.heat_pump_runs_today',\n      'control_entity':
+      'binary_sensor.house_heat_pump_running'\n    },\n    {\n      'key': 'oven',\n
+      \     'name': 'Oven',\n      'power_range': [1500, 3500],\n      'duration_range':
+      [1200, 7200],\n      'typical_times': ['11:00-14:00', '17:00-20:00'],\n      'exclude_times':
+      [],\n      'confirmation_time': 300,\n      'entity_counter': 'counter.oven_uses_today'\n
+      \   },\n    {\n      'key': 'dishwasher',\n      'name': 'Dishwasher',\n      'power_range':
+      [1200, 1800],\n      'duration_range': [3600, 10800],\n      'typical_times':
+      ['13:00-15:00', '19:00-21:00'],\n      'exclude_times': [],\n      'confirmation_time':
+      900,\n      'entity_counter': 'counter.dishwasher_cycles_today',\n      'control_entity':
+      'input_boolean.dishwasher_running'\n    }\n  ]\n}}\n"
+    time_in_range: "{% macro check_time(time_str, ranges) %}\n  {% if ranges is string
+      %}\n    {% set ranges = [ranges] %}\n  {% endif %}\n  {% set current_minutes
+      = now().hour * 60 + now().minute %}\n  {% set found = false %}\n  {% for range_str
+      in ranges %}\n    {% if range_str and ':' in range_str %}\n      {% set parts
+      = range_str.split('-') %}\n      {% if parts|length == 2 %}\n        {% set
+      start = parts[0].split(':') %}\n        {% set end = parts[1].split(':') %}\n
+      \       {% set start_minutes = start[0]|int * 60 + start[1]|int %}\n        {%
+      set end_minutes = end[0]|int * 60 + end[1]|int %}\n        {% if start_minutes
+      <= current_minutes <= end_minutes %}\n          {% set found = true %}\n        {%
+      endif %}\n      {% endif %}\n    {% endif %}\n  {% endfor %}\n  {{ found }}\n{%
+      endmacro %} {{ None }}\n"
+- id: appliance_signature_detector_simple_v2
+  alias: HEMS - Simple Appliance Detector v2
+  description: Basic appliance detection using efficient template sensors
+  triggers:
+  - entity_id: binary_sensor.significant_power_change_detected
+    to: 'on'
+    for:
+      seconds: 2
+    trigger: state
+  actions:
+  - variables:
+      current_power: '{{ states(''sensor.house_consumption'') | float(0) }}'
+      time_now: '{{ now().strftime(''%H:%M'') }}'
+      hour: '{{ now().hour }}'
+      minute: '{{ now().minute }}'
+      current_minutes: '{{ hour * 60 + minute }}'
+  - choose:
+    - conditions:
+      - condition: template
+        value_template: '{{ 500 <= current_power <= 800 }}'
+      - condition: template
+        value_template: "{% set not_meal_time = true %} {% for start, end in [[360,
+          540], [720, 840], [1080, 1200]] %}\n  {% if start <= current_minutes <=
+          end %}\n    {% set not_meal_time = false %}\n  {% endif %}\n{% endfor %}
+          {{ not_meal_time }}\n"
+      sequence:
+      - delay: 00:01:00
+      - variables:
+          power_after: '{{ states(''sensor.house_consumption'') | float(0) }}'
+      - if:
+        - condition: template
+          value_template: '{{ power_after < 400 }}'
+        then:
+        - target:
+            entity_id: counter.water_pump_detections_today
+          action: counter.increment
+        - target:
+            entity_id: input_text.last_detected_appliance
+          data:
+            value: Water Pump at {{ time_now }}
+          action: input_text.set_value
+  - choose:
+    - conditions:
+      - condition: template
+        value_template: '{{ 2000 <= current_power <= 3000 }}'
+      - condition: template
+        value_template: "{% set meal_time = false %} {% for start, end in [[420, 540],
+          [720, 840], [1020, 1200]] %}\n  {% if start <= current_minutes <= end %}\n
+          \   {% set meal_time = true %}\n  {% endif %}\n{% endfor %} {{ meal_time
+          }}\n"
+      sequence:
+      - delay: 00:03:00
+      - variables:
+          power_after: '{{ states(''sensor.house_consumption'') | float(0) }}'
+      - if:
+        - condition: template
+          value_template: '{{ power_after < 500 }}'
+        then:
+        - target:
+            entity_id: counter.kettle_uses_today
+          action: counter.increment
+        - target:
+            entity_id: input_text.last_detected_appliance
+          data:
+            value: Kettle at {{ time_now }}
+          action: input_text.set_value
+  mode: queued
+  max: 5
+- id: appliance_signature_detector_simple_v2
+  alias: HEMS - Simple Appliance Detector v2
+  description: Basic appliance detection using efficient template sensors
+  triggers:
+  - entity_id: binary_sensor.significant_power_change_detected
+    to: 'on'
+    for:
+      seconds: 2
+    trigger: state
+  actions:
+  - variables:
+      current_power: '{{ states(''sensor.house_consumption'') | float(0) }}'
+      time_now: '{{ now().strftime(''%H:%M'') }}'
+      hour: '{{ now().hour }}'
+      minute: '{{ now().minute }}'
+      current_minutes: '{{ hour * 60 + minute }}'
+  - choose:
+    - conditions:
+      - condition: template
+        value_template: '{{ 500 <= current_power <= 800 }}'
+      - condition: template
+        value_template: "{% set not_meal_time = true %} {% for start, end in [[360,
+          540], [720, 840], [1080, 1200]] %}\n  {% if start <= current_minutes <=
+          end %}\n    {% set not_meal_time = false %}\n  {% endif %}\n{% endfor %}
+          {{ not_meal_time }}\n"
+      sequence:
+      - delay: 00:01:00
+      - variables:
+          power_after: '{{ states(''sensor.house_consumption'') | float(0) }}'
+      - if:
+        - condition: template
+          value_template: '{{ power_after < 400 }}'
+        then:
+        - target:
+            entity_id: counter.water_pump_detections_today
+          action: counter.increment
+        - target:
+            entity_id: input_text.last_detected_appliance
+          data:
+            value: Water Pump at {{ time_now }}
+          action: input_text.set_value
+  - choose:
+    - conditions:
+      - condition: template
+        value_template: '{{ 2000 <= current_power <= 3000 }}'
+      - condition: template
+        value_template: "{% set meal_time = false %} {% for start, end in [[420, 540],
+          [720, 840], [1020, 1200]] %}\n  {% if start <= current_minutes <= end %}\n
+          \   {% set meal_time = true %}\n  {% endif %}\n{% endfor %} {{ meal_time
+          }}\n"
+      sequence:
+      - delay: 00:03:00
+      - variables:
+          power_after: '{{ states(''sensor.house_consumption'') | float(0) }}'
+      - if:
+        - condition: template
+          value_template: '{{ power_after < 500 }}'
+        then:
+        - target:
+            entity_id: counter.kettle_uses_today
+          action: counter.increment
+        - target:
+            entity_id: input_text.last_detected_appliance
+          data:
+            value: Kettle at {{ time_now }}
+          action: input_text.set_value
+  mode: queued
+  max: 5
+- id: '1767130777975'
+  alias: HEMS - Appliance Detector (Refactored)
+  description: Detects Kettle and Pump using power signatures
+  triggers:
+  - trigger: state
+    entity_id: binary_sensor.significant_power_change_detected
+    to: 'on'
+    for: 00:00:02
+  actions:
+  - variables:
+      current_p: '{{ states(''sensor.192_168_1_143_load_power'') | float(0) }}'
+      is_meal: '{{ is_state(''binary_sensor.meal_time_active'', ''on'') }}'
+  - choose:
+    - conditions:
+      - condition: template
+        value_template: '{{ 1800 <= current_p <= 3200 and is_meal }}'
+      sequence:
+      - wait_for_trigger:
+        - trigger: numeric_state
+          entity_id: sensor.192_168_1_143_load_power
+          below: 800
+        timeout: 00:05:00
+      - action: counter.increment
+        target:
+          entity_id: counter.kettle_uses_today
+      - action: input_text.set_value
+        target:
+          entity_id: input_text.last_detected_appliance
+        data:
+          value: 'Kettle: {{ current_p|round(0) }}W at {{ now().strftime(''%H:%M'')
+            }}'
+    - conditions:
+      - condition: template
+        value_template: '{{ 400 <= current_p <= 900 and not is_meal }}'
+      sequence:
+      - wait_for_trigger:
+        - trigger: numeric_state
+          entity_id: sensor.192_168_1_143_load_power
+          below: 300
+        timeout: 00:02:00
+      - action: counter.increment
+        target:
+          entity_id: counter.water_pump_detections_today
+      - action: input_text.set_value
+        target:
+          entity_id: input_text.last_detected_appliance
+        data:
+          value: 'Water Pump: {{ current_p|round(0) }}W at {{ now().strftime(''%H:%M'')
+            }}'
+  mode: queued
+  max: 5
+- id: '1767169126577'
+  alias: 'HEMS - System Health: Inverter Time Drift Monitor'
+  description: Alerts when the SSLogger clock drifts significantly from HA time
+  triggers:
+  - hours: /1
+    trigger: time_pattern
+  actions:
+  - variables:
+      ha_time: '{{ now() }}'
+      inverter_time: '{{ states(''datetime.192_168_1_143_date_time'') | as_datetime
+        }}'
+      drift_minutes: '{{ ((ha_time - inverter_time).total_seconds() / 60) | abs |
+        round(0) }}'
+  - if:
+    - condition: template
+      value_template: '{{ drift_minutes > 5 }}'
+    then:
+    - action: notify.persistent_notification
+      data:
+        title: ⚠️ Inverter Clock Drift
+        message: 'Your Deye logger is {{ drift_minutes }} minutes out of sync with
+          HA.  Solar scheduling may be inaccurate.  HA: {{ ha_time.strftime(''%H:%M'')
+          }} | Inverter: {{ inverter_time.strftime(''%H:%M'') }}
+
+          '
+- id: '1767169596903'
+  alias: 'HEMS - Battery: Energy Reserve Alert'
+  description: Alerts when battery is low and high-draw ghost appliances are detected
+  triggers:
+  - trigger: numeric_state
+    entity_id: sensor.192_168_1_143_battery
+    below: 25
+  - trigger: state
+    entity_id:
+    - binary_sensor.appliance_status_kettle
+    - binary_sensor.appliance_status_oven
+    - binary_sensor.appliance_status_heat_pump
+    to: 'on'
+  actions:
+  - if:
+    - condition: numeric_state
+      entity_id: sensor.192_168_1_143_battery
+      below: 30
+    - condition: state
+      entity_id: binary_sensor.192_168_1_143_grid
+      state: 'off'
+    then:
+    - action: notify.mobile_app_phil_iphone
+      data:
+        title: "\U0001F6A8 CRITICAL: High Load on Battery"
+        message: 'Grid is DOWN and Battery is at {{ states(''sensor.192_168_1_143_battery'')
+          }}%.  High load detected. Please turn off heavy appliances to preserve backup.
+
+          '
+        data:
+          push:
+            sound: US-EN-Morgan-Freeman-High-Energy-Usage.wav
+            critical: 1
+            volume: 1
+- id: '1767170897278'
+  alias: 'HEMS - Advisor: Multi-Load Strategy'
+  description: ''
+  triggers:
+  - minutes: /15
+    trigger: time_pattern
+  actions:
+  - variables:
+      total_forecast: '{{ states(''sensor.energy_production_today'') | float(0) }}'
+      peak_time: '{{ as_timestamp(states(''sensor.power_highest_peak_time_today''))
+        | timestamp_custom(''%H:%M'') }}'
+      current_pv: '{{ states(''sensor.192_168_1_143_pv_power'') | float(0) }}'
+      is_humid: '{{ states(''sensor.hall_dehumid_plug_current_active_power'') | float(0)
+        < 5 }}'
+      soc: '{{ states(''sensor.192_168_1_143_battery'') | float(0) }}'
+  - action: input_text.set_value
+    target:
+      entity_id: input_text.hems_suggestion
+    data:
+      value: "{% if total_forecast > 45 %}\n  \U0001F31F **High Production Day:**
+        You have {{ total_forecast }}kWh coming. \n  1. Start **EV Charging** now
+        to soak up morning sun.\n  2. Run **Hot Water Heat Pump** at {{ peak_time
+        }}.\n  3. **Bosch Dishwasher** is safe for Eco cycle.\n{% elif soc < 25 %}\n
+        \ ⚠️ **Battery Reserve Alert:** Battery is low. \n  Please avoid **Oven**
+        or **Kettle** until {{ peak_time }} when solar picks up.\n{% elif current_pv
+        > 3000 %}\n  ⛅ **Surplus Available:** Current solar is {{ current_pv }}W.
+        \n  Good time for **Dehumidifiers** or **Washing Machine**.\n{% else %}\n
+        \ ⚖️ **Balanced:** System is stable. No manual actions required.\n{% endif
+        %}\n"
+- id: '1767173007940'
+  alias: 'HEMS - Decision: Thermal Banking'
+  description: Determines if we should heat the house based on tomorrow's forecast
+  triggers:
+  - minutes: /15
+    trigger: time_pattern
+  actions:
+  - variables:
+      tomorrow_forecast: '{{ states(''sensor.energy_production_tomorrow'') | float(0)
+        }}'
+      battery_soc: '{{ states(''sensor.192_168_1_143_battery'') | float(0) }}'
+      solar_gen: '{{ states(''sensor.192_168_1_143_pv_power'') | float(0) }}'
+      house_temp: '{{ states(''sensor.main_temp'') | float(20) }}'
+      should_heat: '{{ tomorrow_forecast < 20 and battery_soc > 50 and solar_gen >
+        2500 and house_temp < 23 }}
+
+        '
+  - if:
+    - condition: template
+      value_template: '{{ should_heat }}'
+    then:
+    - action: input_text.set_value
+      target:
+        entity_id: input_text.hems_suggestion
+      data:
+        value: "\U0001F525 STRATEGY: Low solar tomorrow. Heating house NOW to 23°C
+          to bank thermal energy and save battery."
+    else:
+    - action: input_text.set_value
+      target:
+        entity_id: input_text.hems_suggestion
+      data:
+        value: '⚖️ STRATEGY: Normal operations. Battery at {{ battery_soc }}%.'
+- id: '1767173439184'
+  alias: HEMS - Simple Start Advisor
+  description: ''
+  triggers:
+  - entity_id: sensor.hems_battery_soc
+    trigger: state
+  actions:
+  - action: input_text.set_value
+    target:
+      entity_id: input_text.hems_suggestion
+    data:
+      value: "{% set soc = states('sensor.hems_battery_soc') | float(0) %} {% if soc
+        < 30 %} \U0001F50B CONSERVE: Battery is low. Essentials only. {% elif soc
+        < 80 %} ⚖️ BALANCED: Battery is healthy. Normal use. {% else %} ☀️ SURPLUS:
+        Battery full. Great time for Dishwasher or Heat Pump. {% endif %}\n"
+- id: '1767174340570'
+  alias: 'HEMS - EV: Solar Tracking Balance'
+  description: Adjusts Tesla charging speed to match solar production
+  triggers:
+  - minutes: /2
+    trigger: time_pattern
+  conditions:
+  - condition: state
+    entity_id: binary_sensor.azul_wind_charging
+    state: 'on'
+  actions:
+  - choose:
+    - conditions:
+      - condition: numeric_state
+        entity_id: sensor.192_168_1_143_external_power
+        above: 500
+      sequence:
+      - action: script.teslachargingincamp
+    - conditions:
+      - condition: numeric_state
+        entity_id: sensor.192_168_1_143_battery_power
+        above: 100
+      sequence:
+      - action: script.teslachargingdecamp
+- id: '1767197520769'
+  alias: 'HEMS: Tesla Predictive Solar Charging'
+  description: Charge Tesla based on today's remaining solar + tomorrow's forecast
+  triggers:
+  - entity_id: sensor.hems_available_solar_surplus
+    for: 00:05:00
+    trigger: state
+  - at: 09:00:00
+    trigger: time
+  conditions:
+  - condition: template
+    value_template: '{% set tesla_home = is_state(''device_tracker.tesla_model_y_location'',
+      ''home'') %} {% set tesla_soc = states(''sensor.tesla_model_y_battery'') | float(0)
+      %} {% set surplus = states(''sensor.hems_available_solar_surplus'') | float(0)
+      %} {{ tesla_home and tesla_soc < 90 and surplus > 2000 }}
+
+      '
+  actions:
+  - entity_id: switch.tesla_model_y_charger
+    action: switch.turn_on
+  - data:
+      title: "\U0001F50B Tesla Smart Charging"
+      message: 'Starting charge: {{ states(''sensor.hems_available_solar_surplus'')
+        }}W surplus available. Today remaining: {{ states(''sensor.hems_solar_forecast_today'')
+        }}kWh Tomorrow forecast: {{ states(''sensor.hems_solar_forecast_tomorrow'')
+        }}kWh
+
+        '
+    action: notify.notify
+  mode: single
+- id: '1767197572760'
+  alias: 'HEMS: Thermal Banking Solar Priority'
+  description: Heat house to 23°C using solar before charging battery
+  triggers:
+  - entity_id: sensor.hems_available_solar_surplus
+    above: 3000
+    for: 00:10:00
+    trigger: numeric_state
+  conditions:
+  - condition: template
+    value_template: '{% set avg_temp = states(''sensor.hems_avg_house_temp'') | float(0)
+      %} {% set target = states(''sensor.hems_thermal_banking_target'') | float(21.5)
+      %} {% set tomorrow_solar = states(''sensor.hems_solar_forecast_tomorrow'') |
+      float(0) %} {{ avg_temp < target and tomorrow_solar < 15 }}
+
+      '
+  actions:
+  - data:
+      entity_id: climate.daikin_altherma_heat_pump
+      temperature: 23
+    action: climate.set_temperature
+  - data:
+      title: "\U0001F3E0 Thermal Banking Active"
+      message: 'Heating to 23°C with solar surplus. Tomorrow''s forecast: {{ states(''sensor.hems_solar_forecast_tomorrow'')
+        }}kWh (low) Current temp: {{ states(''sensor.hems_avg_house_temp'') }}°C
+
+        '
+    action: notify.notify
+  mode: single

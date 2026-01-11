@@ -1,0 +1,88 @@
+blueprint:
+  name: Dehumidifier Control (Simple Solar Surplus)
+  description: Uses only PV - Home Consumption for reliable surplus detection
+  domain: automation
+  input:
+    humidity_sensor:
+      name: Humidity Sensor
+      selector:
+        entity:
+          domain:
+          - sensor
+          device_class:
+          - humidity
+          multiple: false
+    dehumidifier:
+      name: Dehumidifier Switch
+      selector:
+        entity:
+          domain:
+          - switch
+          multiple: false
+    pv_production:
+      name: PV Production Sensor (W)
+      selector:
+        entity:
+          domain:
+          - sensor
+          multiple: false
+    home_consumption:
+      name: Home Consumption Sensor (W)
+      selector:
+        entity:
+          domain:
+          - sensor
+          multiple: false
+    min_humidity:
+      name: Activate Above (%)
+      default: 55
+      selector:
+        number:
+          min: 30.0
+          max: 80.0
+          step: 1.0
+          mode: slider
+    max_humidity:
+      name: Deactivate Below (%)
+      default: 45
+      selector:
+        number:
+          min: 30.0
+          max: 80.0
+          step: 1.0
+          mode: slider
+    min_surplus:
+      name: Minimum Surplus (W)
+      default: 200
+      selector:
+        number:
+          min: 0.0
+          max: 3000.0
+          step: 50.0
+          mode: slider
+  source_url: https://raw.githubusercontent.com/paruff/ha-blueprints/refs/heads/main/dehumidifier_automation.yaml
+trigger:
+- platform: state
+  entity_id:
+  - !input humidity_sensor
+  - !input pv_production
+  - !input home_consumption
+  for: 00:05:00
+condition:
+- condition: template
+  value_template: '{% set hum = states(input.humidity_sensor)|float(0) %} {% set pv
+    = states(input.pv_production)|float(0) %} {% set home = states(input.home_consumption)|float(0)
+    %} {{ (hum > input.min_humidity) and ((pv - home) >= input.min_surplus) }}'
+action:
+- service: switch.turn_on
+  target:
+    entity_id: !input dehumidifier
+- delay: 00:30:00
+- wait_for_trigger:
+  - platform: template
+    value_template: '{{ float(states(input.humidity_sensor)) < float(input.max_humidity)
+      }}'
+  timeout: 02:00:00
+- service: switch.turn_off
+  target:
+    entity_id: !input dehumidifier

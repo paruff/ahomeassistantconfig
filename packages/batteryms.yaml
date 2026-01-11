@@ -1,0 +1,452 @@
+##############################################################################
+# SMART BATTERY MANAGEMENT SYSTEM
+# Optimizes battery charging based on solar forecast and house load
+##############################################################################
+
+#--------------------------------------------------------------------
+# TEMPLATE SENSORS - The Brain of the System
+#--------------------------------------------------------------------
+template:
+  - sensor:
+      # Calculate tomorrow's energy deficit/surplus
+      - name: "Battery Tomorrow Energy Balance"
+        unique_id: battery_tomorrow_energy_balance
+        unit_of_measurement: "kWh"
+        state: >
+          {% set solar_tomorrow = states('sensor.energy_production_tomorrow') | float(20) %}
+          {% set avg_load = states('sensor.average_daily_house_load') | float(12) %}
+          {{ (solar_tomorrow - avg_load) | round(2) }}
+        attributes:
+          solar_forecast: "{{ states('sensor.energy_production_tomorrow') | float(0) }}"
+          expected_load: "{{ states('sensor.average_daily_house_load') | float(0) }}"
+          strategy: >
+            {% set balance = states('sensor.battery_tomorrow_energy_balance') | float(0) %}
+            {% if balance > 5 %}Excellent - Surplus expected
+            {% elif balance > 0 %}Good - Balanced
+            {% elif balance > -5 %}Caution - Slight deficit
+            {% else %}Alert - Charge battery tonight{% endif %}
+
+      # Dynamic night charging SOC target
+      - name: "Battery Target SOC Tonight"
+        unique_id: battery_target_soc_tonight
+        unit_of_measurement: "%"
+        state: >
+          {% set balance = states('sensor.battery_tomorrow_energy_balance') | float(0) %}
+          {% set battery_capacity = 19.6 %}
+          {% set current_soc = states('sensor.192_168_1_143_battery') | float(35) %}
+          
+          {# Calculate target based on tomorrow's deficit #}
+          {% if balance < -10 %}
+            95  {# Major deficit - charge fully #}
+          {% elif balance < -5 %}
+            80  {# Moderate deficit #}
+          {% elif balance < 0 %}
+            60  {# Small deficit #}
+          {% elif balance < 5 %}
+            40  {# Balanced - minimum reserve #}
+          {% else %}
+            25  {# Surplus - rely on solar #}
+          {% endif %}
+        attributes:
+          reason: >
+            {% set balance = states('sensor.battery_tomorrow_energy_balance') | float(0) %}
+            Tomorrow's forecast: {{ balance | round(1) }} kWh {{ 'surplus' if balance > 0 else 'deficit' }}
+          kwh_needed: >
+            {% set target = states('sensor.battery_target_soc_tonight') | float(50) %}
+            {% set current = states('sensor.192_168_1_143_battery') | float(35) %}
+            {{ ((target - current) / 100 * 19.6) | round(2) }}
+
+      # Average daily house load (7-day rolling)
+      - name: "Average Daily House Load"
+        unique_id: avg_daily_house_load
+        unit_of_measurement: "kWh"
+        state: >
+          {% set loads = [
+            states('sensor.192_168_1_143_today_load_consumption') | float(0),
+            state_attr('sensor.192_168_1_143_today_load_consumption', 'yesterday') | float(0),
+            state_attr('sensor.192_168_1_143_today_load_consumption', 'day_2') | float(0),
+            state_attr('sensor.192_168_1_143_today_load_consumption', 'day_3') | float(0),
+            state_attr('sensor.192_168_1_143_today_load_consumption', 'day_4') | float(0),
+            state_attr('sensor.192_168_1_143_today_load_consumption', 'day_5') | float(0),
+            state_attr('sensor.192_168_1_143_today_load_consumption', 'day_6') | float(0)
+          ] %}
+          {% set valid_loads = loads | select('>', 0) | list %}
+          {% if valid_loads | length > 0 %}
+            {{ (valid_loads | sum / valid_loads | length) | round(2) }}
+          {% else %}
+            12.0  {# Fallback estimate #}
+          {% endif %}
+
+      # Smart grid charging recommendation
+      - name: "Battery Smart Grid Charging"
+        unique_id: battery_smart_grid_charging
+        state: >
+          {% set current_soc = states('sensor.192_168_1_143_battery') | float(35) %}
+          {% set target_soc = states('sensor.battery_target_soc_tonight') | float(50) %}
+          {% set tariff = states('sensor.tariff_period') | lower %}
+          {% set time_now = now().hour %}
+          
+          {# Only charge during off-peak (vazio) hours: 00:00-08:00 and 22:00-24:00 #}
+          {% set is_offpeak = tariff == 'vazio' or (time_now >= 22 or time_now < 8) %}
+          
+          {# Determine if we should grid charge #}
+          {% if is_offpeak and current_soc < target_soc %}
+            on
+          {% else %}
+            off
+          {% endif %}
+        attributes:
+          current_soc: "{{ states('sensor.192_168_1_143_battery') | float(0) }}"
+          target_soc: "{{ states('sensor.battery_target_soc_tonight') | float(0) }}"
+          tariff_period: "{{ states('sensor.tariff_period') }}"
+          charging_needed: "{{ (states('sensor.battery_target_soc_tonight') | float(0) - states('sensor.192_168_1_143_battery') | float(0)) | round(1) }}%"
+
+      # Current battery charging strategy status
+      - name: "Battery Strategy Status"
+        unique_id: battery_strategy_status
+        state: >
+          {% set grid_charging = is_state('switch.192_168_1_143_battery_grid_charging', 'on') %}
+          {% set battery_power = states('sensor.192_168_1_143_battery_power') | float(0) %}
+          {% set soc = states('sensor.192_168_1_143_battery') | float(0) %}
+          {% set pv_power = states('sensor.192_168_1_143_pv_power') | float(0) %}
+          
+          {% if battery_power < -500 %}
+            Charging from {{ 'Grid' if pv_power < 100 else 'Solar' }} ({{ battery_power | abs | round(0) }}W)
+          {% elif battery_power > 500 %}
+            Discharging ({{ battery_power | round(0) }}W)
+          {% else %}
+            Idle
+          {% endif %}
+        icon: >
+          {% set battery_power = states('sensor.192_168_1_143_battery_power') | float(0) %}
+          {% if battery_power < -500 %}mdi:battery-charging
+          {% elif battery_power > 500 %}mdi:battery-arrow-down
+          {% else %}mdi:battery-check{% endif %}
+
+#--------------------------------------------------------------------
+# INPUT HELPERS - User Controls
+#--------------------------------------------------------------------
+input_boolean:
+  # Master enable for smart battery management
+  battery_smart_management:
+    name: Enable Smart Battery Management
+    icon: mdi:robot
+  
+  # Override to force grid charging NOW
+  battery_force_charge_now:
+    name: Force Grid Charge Now
+    icon: mdi:battery-charging-100
+
+input_number:
+  # Minimum battery reserve (never discharge below)
+  battery_minimum_reserve:
+    name: Battery Minimum Reserve
+    min: 10
+    max: 50
+    step: 5
+    unit_of_measurement: "%"
+    icon: mdi:battery-lock
+  
+  # Maximum grid charging current (Amps)
+  battery_grid_charging_amps:
+    name: Grid Charging Current
+    min: 5
+    max: 60
+    step: 5
+    unit_of_measurement: "A"
+    icon: mdi:current-ac
+
+input_select:
+  # Battery management mode
+  battery_management_mode:
+    name: Battery Management Mode
+    options:
+      - "Auto - Smart"
+      - "Manual - Grid Off"
+      - "Manual - Grid On"
+      - "Winter - Maximize Grid"
+      - "Summer - Solar Only"
+    icon: mdi:cog
+
+#--------------------------------------------------------------------
+# AUTOMATIONS - The Control Logic
+#--------------------------------------------------------------------
+automation:
+  # 1. MAIN SMART BATTERY CONTROLLER
+  - id: smart_battery_main_controller
+    alias: "Battery - Smart Management Controller"
+    description: "Master automation controlling battery grid charging based on forecasts"
+    mode: queued
+    trigger:
+      # Check every hour
+      - platform: time_pattern
+        minutes: "0"
+      # When tariff changes
+      - platform: state
+        entity_id: sensor.tariff_period
+      # When solar forecast updates
+      - platform: state
+        entity_id: sensor.energy_production_tomorrow
+      # When battery SOC changes by 5%
+      - platform: state
+        entity_id: sensor.192_168_1_143_battery
+      # At specific critical times
+      - platform: time
+        at: "22:00:00"  # Start of night charging window
+      - platform: time
+        at: "08:00:00"  # End of night charging window
+    condition:
+      # Only run if smart management is enabled
+      - condition: state
+        entity_id: input_boolean.battery_smart_management
+        state: "on"
+    action:
+      # Get current state
+      - variables:
+          current_soc: "{{ states('sensor.192_168_1_143_battery') | float(0) }}"
+          target_soc: "{{ states('sensor.battery_target_soc_tonight') | float(0) }}"
+          smart_charge: "{{ states('sensor.battery_smart_grid_charging') }}"
+          mode: "{{ states('input_select.battery_management_mode') }}"
+          force_charge: "{{ is_state('input_boolean.battery_force_charge_now', 'on') }}"
+      
+      # Apply logic based on mode
+      - choose:
+          # AUTO MODE - Use smart logic
+          - conditions:
+              - condition: template
+                value_template: "{{ 'Auto' in mode or force_charge }}"
+            sequence:
+              - choose:
+                  # Turn ON grid charging
+                  - conditions:
+                      - condition: template
+                        value_template: "{{ smart_charge == 'on' or force_charge }}"
+                    sequence:
+                      - service: switch.turn_on
+                        target:
+                          entity_id: switch.192_168_1_143_battery_grid_charging
+                      - service: number.set_value
+                        target:
+                          entity_id: number.192_168_1_143_battery_grid_charging_start
+                        data:
+                          value: "{{ current_soc | int }}"
+                      - service: number.set_value
+                        target:
+                          entity_id: number.192_168_1_143_battery_grid_charging_current
+                        data:
+                          value: "{{ states('input_number.battery_grid_charging_amps') | int }}"
+                      - service: persistent_notification.create
+                        data:
+                          title: "🔋 Battery Smart Charge ON"
+                          message: >
+                            Charging to {{ target_soc }}% for tomorrow
+                            Solar forecast: {{ states('sensor.energy_production_tomorrow') }}kWh
+                            Expected load: {{ states('sensor.average_daily_house_load') }}kWh
+                  
+                  # Turn OFF grid charging
+                  - conditions:
+                      - condition: template
+                        value_template: "{{ smart_charge == 'off' }}"
+                    sequence:
+                      - service: switch.turn_off
+                        target:
+                          entity_id: switch.192_168_1_143_battery_grid_charging
+                      - service: input_boolean.turn_off
+                        target:
+                          entity_id: input_boolean.battery_force_charge_now
+          
+          # MANUAL MODES
+          - conditions:
+              - condition: template
+                value_template: "{{ 'Manual - Grid Off' in mode }}"
+            sequence:
+              - service: switch.turn_off
+                target:
+                  entity_id: switch.192_168_1_143_battery_grid_charging
+          
+          - conditions:
+              - condition: template
+                value_template: "{{ 'Manual - Grid On' in mode }}"
+            sequence:
+              - service: switch.turn_on
+                target:
+                  entity_id: switch.192_168_1_143_battery_grid_charging
+          
+          # SEASONAL MODES
+          - conditions:
+              - condition: template
+                value_template: "{{ 'Winter' in mode }}"
+            sequence:
+              # Winter: Charge to 90% every night
+              - condition: time
+                after: "22:00:00"
+                before: "08:00:00"
+              - service: switch.turn_on
+                target:
+                  entity_id: switch.192_168_1_143_battery_grid_charging
+              - service: number.set_value
+                target:
+                  entity_id: number.192_168_1_143_battery_grid_charging_start
+                data:
+                  value: 90
+          
+          - conditions:
+              - condition: template
+                value_template: "{{ 'Summer' in mode }}"
+            sequence:
+              # Summer: Never grid charge
+              - service: switch.turn_off
+                target:
+                  entity_id: switch.192_168_1_143_battery_grid_charging
+
+  # 2. EMERGENCY BATTERY PROTECTION
+  - id: battery_emergency_protection
+    alias: "Battery - Emergency Low Protection"
+    description: "Emergency grid charging if battery critically low"
+    trigger:
+      - platform: numeric_state
+        entity_id: sensor.192_168_1_143_battery
+        below: 15
+    condition:
+      - condition: time
+        after: "22:00:00"
+        before: "08:00:00"
+    action:
+      - service: switch.turn_on
+        target:
+          entity_id: switch.192_168_1_143_battery_grid_charging
+      - service: number.set_value
+        target:
+          entity_id: number.192_168_1_143_battery_grid_charging_start
+        data:
+          value: 15
+      - service: number.set_value
+        target:
+          entity_id: number.192_168_1_143_battery_grid_charging_current
+        data:
+          value: 60  # Max current for emergency
+      - service: persistent_notification.create
+        data:
+          title: "⚠️ BATTERY CRITICALLY LOW"
+          message: "Emergency grid charging activated! Battery at {{ states('sensor.192_168_1_143_battery') }}%"
+
+  # 3. MORNING REPORT
+  - id: battery_morning_report
+    alias: "Battery - Morning Strategy Report"
+    description: "Daily report on battery strategy and solar forecast"
+    trigger:
+      - platform: time
+        at: "08:00:00"
+    action:
+      - service: persistent_notification.create
+        data:
+          title: "🌅 Morning Energy Report"
+          message: >
+            Battery SOC: {{ states('sensor.192_168_1_143_battery') }}%
+            Solar forecast today: {{ states('sensor.energy_production_today_remaining') }}kWh
+            Solar forecast tomorrow: {{ states('sensor.energy_production_tomorrow') }}kWh
+            Average daily load: {{ states('sensor.average_daily_house_load') }}kWh
+            
+            Tonight's target SOC: {{ states('sensor.battery_target_soc_tonight') }}%
+            Strategy: {{ state_attr('sensor.battery_tomorrow_energy_balance', 'strategy') }}
+
+  # 4. EVENING PREPARATION
+  - id: battery_evening_prep
+    alias: "Battery - Evening Prep Notification"
+    description: "Notify about tonight's charging plan"
+    trigger:
+      - platform: time
+        at: "20:00:00"
+    action:
+      - service: persistent_notification.create
+        data:
+          title: "🌙 Tonight's Battery Plan"
+          message: >
+            Current SOC: {{ states('sensor.192_168_1_143_battery') }}%
+            Target for tonight: {{ states('sensor.battery_target_soc_tonight') }}%
+            
+            Tomorrow's forecast:
+            - Solar: {{ states('sensor.energy_production_tomorrow') }}kWh
+            - Expected load: {{ states('sensor.average_daily_house_load') }}kWh
+            - Balance: {{ states('sensor.battery_tomorrow_energy_balance') }}kWh
+            
+            {% if states('sensor.battery_smart_grid_charging') == 'on' %}
+            ✅ Grid charging will activate at 22:00
+            {% else %}
+            ℹ️ No grid charging needed - sufficient solar expected
+            {% endif %}
+
+  # 5. STOP GRID CHARGING AT PEAK HOURS
+  - id: battery_stop_peak_charging
+    alias: "Battery - Force Stop During Peak Hours"
+    description: "Ensure battery never charges from grid during expensive periods"
+    trigger:
+      - platform: state
+        entity_id: sensor.tariff_period
+        to: "ponta"  # Peak tariff
+      - platform: state
+        entity_id: sensor.tariff_period
+        to: "cheia"  # Standard tariff
+    action:
+      - service: switch.turn_off
+        target:
+          entity_id: switch.192_168_1_143_battery_grid_charging
+      - service: persistent_notification.create
+        data:
+          title: "⚡ Peak Hours - Grid Charging Stopped"
+          message: "Tariff changed to {{ states('sensor.tariff_period') }}. Grid charging disabled."
+
+#--------------------------------------------------------------------
+# SCRIPTS - Helper Functions
+#--------------------------------------------------------------------
+script:
+  # Manual override to charge battery now
+  battery_charge_to_target:
+    alias: "Battery - Charge to Custom Target"
+    fields:
+      target_soc:
+        description: "Target State of Charge (%)"
+        example: 80
+    sequence:
+      - service: switch.turn_on
+        target:
+          entity_id: switch.192_168_1_143_battery_grid_charging
+      - service: number.set_value
+        target:
+          entity_id: number.192_168_1_143_battery_grid_charging_start
+        data:
+          value: "{{ target_soc | int }}"
+      - delay:
+          hours: 1
+      - condition: template
+        value_template: "{{ states('sensor.192_168_1_143_battery') | float >= target_soc | float }}"
+      - service: switch.turn_off
+        target:
+          entity_id: switch.192_168_1_143_battery_grid_charging
+
+  # Reset battery management to defaults
+  battery_reset_to_defaults:
+    alias: "Battery - Reset to Safe Defaults"
+    sequence:
+      - service: input_boolean.turn_on
+        target:
+          entity_id: input_boolean.battery_smart_management
+      - service: input_select.select_option
+        target:
+          entity_id: input_select.battery_management_mode
+        data:
+          option: "Auto - Smart"
+      - service: input_number.set_value
+        target:
+          entity_id: input_number.battery_minimum_reserve
+        data:
+          value: 25
+      - service: input_number.set_value
+        target:
+          entity_id: input_number.battery_grid_charging_amps
+        data:
+          value: 30
+      - service: persistent_notification.create
+        data:
+          title: "✅ Battery Management Reset"
+          message: "All settings restored to safe defaults. Smart management enabled."

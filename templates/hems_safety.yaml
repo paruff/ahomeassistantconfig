@@ -1,0 +1,17 @@
+- sensor:
+    - name: "HEMS Grid Capacity Remaining"
+      unique_id: hems_grid_capacity_remaining
+      unit_of_measurement: "W"
+      device_class: power
+      # 6900W - Current Grid Import. 
+      # If result is negative, you are exceeding your contract!
+      state: >
+        {% set grid_import = states('sensor.hems_grid_power') | float(0) %}
+        {{ (6900 - grid_import) | round(0) }}
+
+- binary_sensor:
+    - name: "HEMS Grid Overload Warning"
+      unique_id: hems_grid_overload_warning
+      device_class: problem
+      # Threshold: 6500W (gives you a 400W buffer before the trip)
+      state: "{{ states('sensor.hems_grid_power') | float(0) > 6500 }}"

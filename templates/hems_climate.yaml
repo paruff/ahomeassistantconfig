@@ -1,0 +1,17 @@
+- sensor:
+    - name: "HEMS Indoor Average Humidity"
+      unique_id: hems_indoor_average_humidity
+      unit_of_measurement: "%"
+      state: >
+        {% set basement = states('sensor.ikea_basement_humidity') | float(0) %}
+        {% set attic = states('sensor.ikea_attic_humidity') | float(0) %}
+        {{ ((basement + attic) / 2) | round(1) }}
+
+    - name: "HEMS Thermal Delta"
+      unique_id: hems_thermal_delta
+      unit_of_measurement: "°C"
+      # Difference between inside and outside. High delta = high heat loss.
+      state: >
+        {% set inside = state_attr('climate.tstat_877799_t6_thermostat', 'current_temperature') | float(0) %}
+        {% set outside = states('sensor.hems_outdoor_temperature') | float(0) %}
+        {{ (inside - outside) | round(1) }}

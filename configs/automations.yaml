@@ -1,0 +1,238 @@
+- id: '1689869931062'
+  alias: More PV increase amp to EV
+  description: ''
+  trigger:
+  - platform: time_pattern
+    minutes: /1
+  condition:
+  - condition: sun
+    before: sunset
+    after: sunrise
+  - condition: state
+    entity_id: input_select.ev_charge_mode
+    state: PV
+  - condition: numeric_state
+    entity_id: sensor.on_grid_export_power
+    above: 245
+  - condition: device
+    device_id: 7d70b07300f4fd674df42b673260afde
+    domain: device_tracker
+    entity_id: device_tracker.solar_wind_location_tracker
+    type: is_home
+  - condition: state
+    entity_id: binary_sensor.solar_wind_charger
+    state: 'on'
+  - condition: numeric_state
+    entity_id: sensor.solar_wind_battery
+    below: number.solar_wind_charge_limit
+  action:
+  - service: script.1690723709415
+    data: {}
+  mode: single
+- id: '1690107177578'
+  alias: Less PV reduce amps to EV
+  description: ''
+  trigger:
+  - platform: time_pattern
+    minutes: /5
+  condition:
+  - condition: sun
+    before: sunset
+    after: sunrise
+  - condition: state
+    entity_id: input_select.ev_charge_mode
+    state: PV
+  - condition: numeric_state
+    entity_id: sensor.on_grid_export_power
+    below: -75
+  - condition: device
+    device_id: 7d70b07300f4fd674df42b673260afde
+    domain: device_tracker
+    entity_id: device_tracker.solar_wind_location_tracker
+    type: is_home
+  - condition: state
+    entity_id: binary_sensor.solar_wind_charger
+    state: 'on'
+  action:
+  - service: script.1690723785167
+    data: {}
+  mode: single
+- id: '1690366636170'
+  alias: Tesla - Charge with excess solar
+  description: Vary amps depending on excess solar generation
+  trigger:
+  - platform: time_pattern
+    minutes: /2
+  condition:
+  - condition: state
+    entity_id: device_tracker.azul_wind_location_tracker
+    state: home
+  - condition: sun
+    before: sunset
+    after: sunrise
+  - condition: state
+    entity_id: switch.azul_wind_charger
+    state: 'on'
+  - condition: state
+    entity_id: input_select.ev_charge_mode
+    state: PV
+  action:
+  - service: script.1690624274336
+    data: {}
+  mode: single
+- id: '1690628539198'
+  alias: adjust charging EV amps
+  description: runs every N minutes, as Solar API is invoked. adjust EV amps based
+    on excess PV
+  trigger:
+  - minutes: /5
+    platform: time_pattern
+  - platform: state
+    entity_id:
+    - binary_sensor.solar_wind_charger
+    to: 'on'
+  condition:
+  - condition: sun
+    before: sunset
+    after: sunrise
+    before_offset: '2'
+    after_offset: '1'
+  - condition: state
+    entity_id: input_select.ev_charge_mode
+    state: PV
+  - condition: device
+    device_id: 7d70b07300f4fd674df42b673260afde
+    domain: device_tracker
+    entity_id: device_tracker.solar_wind_location_tracker
+    type: is_home
+  - condition: state
+    entity_id: binary_sensor.solar_wind_charger
+    state: 'on'
+  - condition: device
+    type: is_on
+    device_id: 7d70b07300f4fd674df42b673260afde
+    entity_id: switch.solar_wind_charger
+    domain: switch
+  - condition: not
+    conditions:
+    - condition: state
+      entity_id: sensor.battery_mode
+      state: Discharge
+    enabled: false
+  action:
+  - service: script.1690624274336
+    data: {}
+- id: '1691157335692'
+  alias: battery discharge reset Amps for EV
+  description: runs every time battery discharge
+  trigger:
+  - platform: state
+    entity_id:
+    - sensor.battery_mode
+    to: Discharge
+    for:
+      hours: 0
+      minutes: 1
+      seconds: 0
+  condition:
+  - condition: device
+    device_id: 7d70b07300f4fd674df42b673260afde
+    domain: device_tracker
+    entity_id: device_tracker.solar_wind_location_tracker
+    type: is_home
+  - condition: state
+    entity_id: binary_sensor.solar_wind_charger
+    state: 'on'
+  - condition: device
+    type: is_on
+    device_id: 7d70b07300f4fd674df42b673260afde
+    entity_id: switch.solar_wind_charger
+    domain: switch
+  - condition: state
+    entity_id: sensor.battery_mode_code
+    state: '2'
+  action:
+  - service: switch.turn_off
+    data: {}
+    target:
+      entity_id: switch.solar_wind_charger
+  - service: script.1690723785167
+    data: {}
+  - delay:
+      hours: 0
+      minutes: 2
+      seconds: 0
+      milliseconds: 0
+  - service: script.1690723785167
+    data: {}
+  - service: switch.turn_on
+    data: {}
+    target:
+      entity_id: switch.solar_wind_charger
+  - service: script.1690624274336
+    data: {}
+  mode: single
+- id: '1691336951882'
+  alias: Save battery
+  description: runs every time battery discharge
+  trigger:
+  - platform: state
+    entity_id:
+    - sensor.battery_mode
+    to: Discharge
+    for:
+      hours: 0
+      minutes: 0
+      seconds: 0
+  - platform: numeric_state
+    entity_id: sensor.battery_mode_code
+    above: 1
+    below: 3
+  condition:
+  - condition: device
+    device_id: 7d70b07300f4fd674df42b673260afde
+    domain: device_tracker
+    entity_id: device_tracker.solar_wind_location_tracker
+    type: is_home
+  - condition: state
+    entity_id: binary_sensor.solar_wind_charger
+    state: 'on'
+  - condition: device
+    type: is_on
+    device_id: 7d70b07300f4fd674df42b673260afde
+    entity_id: switch.solar_wind_charger
+    domain: switch
+  - condition: state
+    entity_id: sensor.battery_mode_code
+    state: '2'
+  action:
+  - service: script.1690723785167
+    data: {}
+  - service: script.1690723785167
+    data: {}
+  mode: single
+- id: '1708363046851'
+  alias: Low battery level detection & notification for all battery sensors
+  description: ''
+  use_blueprint:
+    path: gmlupatelli/low_battery_notification.yaml
+    input:
+      actions:
+      - device_id: d0069c08745ca4a9b41642927107186e
+        domain: mobile_app
+        type: notify
+        message: 'Low Battery '
+- id: '1720273288537'
+  alias: Turn off TV at 11 PM
+  description: ''
+  trigger:
+  - platform: time
+    at: '23:00:00'
+  condition: []
+  action:
+  - service: switch.turn_off
+    metadata: {}
+    data: {}
+    target:
+      device_id: 0cf119c66ab650b5722c4f656d2ad9a7
+  mode: single

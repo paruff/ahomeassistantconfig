@@ -1,0 +1,26 @@
+- sensor:
+    - name: "HEMS Total Charging Headroom"
+      unique_id: hems_total_charging_headroom
+      unit_of_measurement: "W"
+      device_class: power
+      # Logic: Contract Limit (6900W) - Current House Load + Current EV Draw
+      # We add back the EV draw because we want to know the total 'empty' space 
+      # available to the car/heat pump.
+      state: >
+        {% set limit = 6900 %}
+        {% set grid = states('sensor.hems_grid_power') | float(0) %}
+        {% set ev = states('sensor.hems_ev_azul_wind_power') | float(0) %}
+        {# We want to stay below the limit. Headroom = Limit - what we are pulling from grid now #}
+        {{ (limit - grid) | round(0) }}
+
+    - name: "HEMS Energy Strategy Phase"
+      unique_id: hems_energy_strategy_phase
+      # This sensor tells your house what 'mode' it is in
+      state: >
+        {% if states('sensor.hems_pv_power') | float(0) > 3000 %}
+          Solar Surplus
+        {% elif states('sensor.hems_battery_soc') | float(0) <= 20 %}
+          Grid Conservation
+        {% else %}
+          Standard
+        {% endif %}

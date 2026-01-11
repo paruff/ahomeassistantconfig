@@ -1,0 +1,32 @@
+
+# Loads default set of integrations. Do not remove.
+default_config:
+
+powercalc:
+
+# Load frontend themes from the themes folder
+frontend:
+  themes: !include_dir_merge_named themes
+
+# Text-to-speech
+tts:
+  - platform: google_translate
+
+homeassistant:
+  packages: !include_dir_named packages
+  time_zone: Europe/Lisbon
+
+automation: !include automations.yaml
+script: !include scripts.yaml
+scene: !include scenes.yaml
+template: !include_dir_merge_list templates/ems_templates.yaml
+# ==========================================
+# RECORDER (Critical for EMHASS to see history)
+# ==========================================
+recorder:
+  purge_keep_days: 7
+  include:
+    entities:
+      - sensor.192_168_1_143_load_power
+      - sensor.192_168_1_143_pv_power
+      - sensor.192_168_1_143_battery

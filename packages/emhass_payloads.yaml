@@ -1,0 +1,24 @@
+rest_command:
+
+  emhass_dayahead_payload:
+    url: "http://192.168.1.10:5002/action/dayahead-optim"
+    method: POST
+    content_type: "application/json"
+    payload: >
+      {
+        "pv_power_forecast": "{{ states('sensor.pv_forecast') }}",
+        "load_power_forecast": "{{ states('sensor.load_forecast') }}",
+        "price_forecast": "{{ states('sensor.energy_price_forecast') }}",
+        "weather_forecast": "{{ states('sensor.weather_forecast') }}"
+      }
+
+  emhass_realtime_payload:
+    url: "http://192.168.1.10:5002/action/optim"
+    method: POST
+    content_type: "application/json"
+    payload: >
+      {
+        "pv_power_forecast": "{{ states('sensor.pv_forecast') }}",
+        "load_power_forecast": "{{ states('sensor.load_forecast') }}"
+      }
+

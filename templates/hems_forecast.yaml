@@ -1,0 +1,13 @@
+- sensor:
+    - name: "HEMS Solar Forecast Tomorrow"
+      unique_id: hems_solar_forecast_tomorrow
+      unit_of_measurement: "kWh"
+      device_class: energy
+      # Maps your specific Solcast entity
+      state: "{{ states('sensor.solcast_pv_forecast_forecast_tomorrow') | float(0) }}"
+
+    - name: "HEMS Solar Forecast Remaining Today"
+      unique_id: hems_solar_forecast_remaining_today
+      unit_of_measurement: "kWh"
+      device_class: energy
+      state: "{{ states('sensor.solcast_pv_forecast_forecast_remaining_today') | float(0) }}"

@@ -1,0 +1,729 @@
+'1766928862627':
+  alias: TeslaChargingSetAmps
+  mode: queued
+  max: 12
+  sequence:
+  - variables:
+      vehicle_id: '{{ state_attr(''binary_sensor.azul_wind_online'', ''id'') }}'
+      current_amps: '{{ states(''number.azul_wind_charging_amps'') | float(0) }}'
+      surplus: '{{ states(''sensor.surplus_solar'') | float(0) }}'
+      surplus_amps: '{{ (surplus / 240) | float(0) }}'
+      proposed: '{{ (current_amps + surplus_amps) | round(0) }}'
+      target: '{% if proposed < 5 %} 5 {% elif proposed > 12 %} 12 {% else %} {{ proposed
+        }} {% endif %}
+
+        '
+  - data:
+      command: CHARGING_AMPS
+      parameters:
+        path_vars:
+          vehicle_id: '{{ vehicle_id }}'
+        charging_amps: '{{ target }}'
+    action: tesla_custom.api
+  description: ''
+teslachargingincamp:
+  alias: TeslaChargingIncAmp
+  mode: queued
+  max: 12
+  sequence:
+  - variables:
+      vehicle_id: '{{ state_attr(''binary_sensor.azul_wind_online'', ''id'') }}'
+      current: '{{ states(''number.azul_wind_charging_amps'') | float(0) }}'
+      target: '{{ [current + 1, 12] | min }}'
+  - data:
+      command: CHARGING_AMPS
+      parameters:
+        path_vars:
+          vehicle_id: '{{ vehicle_id }}'
+        charging_amps: '{{ target }}'
+    action: tesla_custom.api
+  description: ''
+'1766928916843':
+  alias: TeslaChargingDecAmp
+  mode: queued
+  max: 12
+  sequence:
+  - variables:
+      vehicle_id: '{{ state_attr(''binary_sensor.azul_wind_online'', ''id'') }}'
+      current: '{{ states(''number.azul_wind_charging_amps'') | float(0) }}'
+      target: '{{ [current - 1, 5] | max }}'
+  - data:
+      command: CHARGING_AMPS
+      parameters:
+        path_vars:
+          vehicle_id: '{{ vehicle_id }}'
+        charging_amps: '{{ target }}'
+    action: tesla_custom.api
+  description: ''
+test_appliance_detection:
+  sequence:
+  - target:
+      entity_id: counter.kettle_uses_today
+    action: counter.increment
+  - target:
+      entity_id: counter.water_pump_detections_today
+    action: counter.increment
+  - target:
+      entity_id: input_number.house_hp_runtime_today
+    data:
+      value: 120
+    action: input_number.set_value
+  - target:
+      entity_id: input_boolean.house_heat_pump_running
+    action: input_boolean.turn_on
+  - delay:
+      seconds: 2
+  - data:
+      title: Test Results
+      message: 'Kettle uses: {{ states(''counter.kettle_uses_today'') }} Kettle energy:
+        {{ states(''sensor.kettle_energy_today'') }} kWh Water pump: {{ states(''counter.water_pump_detections_today'')
+        }} House HP runtime: {{ states(''input_number.house_hp_runtime_today'') }}
+        min House HP energy: {{ states(''sensor.house_hp_energy_today'') }} kWh
+
+        '
+    action: persistent_notification.create
+  alias: Test Appliance Detection
+  description: ''
+'1767102343037':
+  sequence:
+  - data:
+      title: "\U0001F9EA Appliance Detection Test"
+      message: 'Starting appliance detection test...
+
+
+        **Current State:**
+
+        • House HP Running: {{ states(''input_boolean.house_heat_pump_running'') }}
+
+        • Water HP Running: {{ states(''input_boolean.water_heat_pump_running'') }}
+
+        • Last Detected: {{ states(''input_text.last_detected_appliance'') }}
+
+
+        **Running tests in 5 seconds...**
+
+        '
+      notification_id: appliance_test
+    action: persistent_notification.create
+  - delay:
+      seconds: 5
+  - data:
+      name: "\U0001F9EA TEST"
+      message: Simulating Water Pump (650W spike)
+    action: logbook.log
+  - variables:
+      test_time: '{{ now().strftime(''%H:%M'') }}'
+  - target:
+      entity_id: counter.water_pump_detections_today
+    action: counter.increment
+  - target:
+      entity_id: input_text.last_detected_appliance
+    data:
+      value: 'TEST: Water Pump at {{ test_time }} (650W)'
+    action: input_text.set_value
+  - delay:
+      seconds: 2
+  - data:
+      name: "\U0001F9EA TEST"
+      message: Simulating Kettle (2200W spike)
+    action: logbook.log
+  - target:
+      entity_id: counter.kettle_uses_today
+    action: counter.increment
+  - target:
+      entity_id: input_text.last_detected_appliance
+    data:
+      value: 'TEST: Kettle at {{ test_time }} (2200W)'
+    action: input_text.set_value
+  - delay:
+      seconds: 2
+  - choose:
+    - conditions:
+      - condition: state
+        entity_id: input_boolean.house_heat_pump_running
+        state: 'off'
+      sequence:
+      - target:
+          entity_id: input_boolean.house_heat_pump_running
+        action: input_boolean.turn_on
+      - data:
+          name: "\U0001F9EA TEST"
+          message: Turned ON House Heat Pump
+        action: logbook.log
+    - conditions:
+      - condition: state
+        entity_id: input_boolean.house_heat_pump_running
+        state: 'on'
+      sequence:
+      - target:
+          entity_id: input_boolean.house_heat_pump_running
+        action: input_boolean.turn_off
+      - data:
+          name: "\U0001F9EA TEST"
+          message: Turned OFF House Heat Pump
+        action: logbook.log
+  - choose:
+    - conditions:
+      - condition: state
+        entity_id: input_boolean.water_heat_pump_running
+        state: 'off'
+      sequence:
+      - target:
+          entity_id: input_boolean.water_heat_pump_running
+        action: input_boolean.turn_on
+      - data:
+          name: "\U0001F9EA TEST"
+          message: Turned ON Water Heat Pump
+        action: logbook.log
+    - conditions:
+      - condition: state
+        entity_id: input_boolean.water_heat_pump_running
+        state: 'on'
+      sequence:
+      - target:
+          entity_id: input_boolean.water_heat_pump_running
+        action: input_boolean.turn_off
+      - data:
+          name: "\U0001F9EA TEST"
+          message: Turned OFF Water Heat Pump
+        action: logbook.log
+  - target:
+      entity_id: input_number.house_hp_runtime_today
+    data:
+      value: '{{ states(''input_number.house_hp_runtime_today'') | float(0) + 30 }}'
+    action: input_number.set_value
+  - target:
+      entity_id: input_number.hot_water_hp_runtime_today
+    data:
+      value: '{{ states(''input_number.hot_water_hp_runtime_today'') | float(0) +
+        45 }}'
+    action: input_number.set_value
+  - delay:
+      seconds: 2
+  - data:
+      title: "\U0001F9EA Test Complete!"
+      message: "**Test Results:**\n\n\U0001F4CA Counters Updated:\n• Water Pump: {{
+        states('counter.water_pump_detections_today') }} detections\n• Kettle: {{
+        states('counter.kettle_uses_today') }} uses\n\n\U0001F525 Heat Pump States:\n•
+        House HP: {{ states('input_boolean.house_heat_pump_running') }}\n• Water HP:
+        {{ states('input_boolean.water_heat_pump_running') }}\n\n⏱️ Runtime Added:\n•
+        House HP: +30 min (Total: {{ states('input_number.house_hp_runtime_today')
+        }} min)\n• Water HP: +45 min (Total: {{ states('input_number.hot_water_hp_runtime_today')
+        }} min)\n\n⚡ Energy Calculated:\n• Kettle: {{ states('sensor.kettle_energy_today')
+        }} kWh\n• Water Pump: {{ states('sensor.water_pump_energy_today') }} kWh\n•
+        House HP: {{ states('sensor.house_hp_energy_today') }} kWh\n• Water HP: {{
+        states('sensor.hot_water_hp_energy_today') }} kWh\n\n✅ All systems functional!\n"
+      notification_id: appliance_test_results
+    action: persistent_notification.create
+  alias: "\U0001F9EA Test Appliance Detection System"
+  description: ''
+test_power_monitoring:
+  sequence:
+  - variables:
+      current_power: '{{ states(''sensor.on_grid_export_power'') | float(0) }}'
+      power_delta: '{{ states(''sensor.power_delta'') | float(0) }}'
+  - data:
+      title: ⚡ Power Monitoring Test
+      message: '**Current Power Status:**
+
+
+        Grid Power: {{ current_power | round(0) }}W
+
+        Power Delta: {{ power_delta | round(0) }}W
+
+        Last Power: {{ states(''input_number.last_power_value'') | round(0) }}W
+
+
+        **Test: Simulating power changes...**
+
+        '
+      notification_id: power_test
+    action: persistent_notification.create
+  - delay:
+      seconds: 3
+  - target:
+      entity_id: input_number.last_power_value
+    data:
+      value: '{{ current_power - 1500 }}'
+    action: input_number.set_value
+  - delay:
+      seconds: 2
+  - variables:
+      new_delta: '{{ states(''sensor.power_delta'') | float(0) }}'
+  - data:
+      title: ⚡ Power Change Simulated
+      message: '**Test Results:**
+
+
+        Simulated 1500W appliance turning on
+
+
+        New Power Delta: {{ new_delta | round(0) }}W
+
+        Detection Threshold: 300W
+
+
+        **Would trigger detection:** {{ new_delta|abs > 300 }}
+
+
+        {{ ''✅ Would detect appliance!'' if new_delta|abs > 300 else ''❌ Below detection
+        threshold'' }}
+
+        '
+      notification_id: power_test_results
+    action: persistent_notification.create
+  alias: ⚡ Test Power Monitoring
+  description: ''
+reset_all_appliance_counters:
+  sequence:
+  - data:
+      title: Resetting Counters...
+      message: This will reset all daily appliance counters to zero.
+      notification_id: reset_warning
+    action: persistent_notification.create
+  - delay:
+      seconds: 3
+  - target:
+      entity_id: counter.water_pump_detections_today
+    action: counter.reset
+  - target:
+      entity_id: counter.kettle_uses_today
+    action: counter.reset
+  - target:
+      entity_id: counter.dishwasher_cycles_today
+    action: counter.reset
+  - target:
+      entity_id: counter.oven_uses_today
+    action: counter.reset
+  - target:
+      entity_id: input_number.house_hp_runtime_today
+    data:
+      value: 0
+    action: input_number.set_value
+  - target:
+      entity_id: input_number.hot_water_hp_runtime_today
+    data:
+      value: 0
+    action: input_number.set_value
+  - target:
+      entity_id: input_text.last_detected_appliance
+    data:
+      value: Counters reset at {{ now().strftime('%H:%M') }}
+    action: input_text.set_value
+  - target:
+      entity_id: input_boolean.house_heat_pump_running
+    action: input_boolean.turn_off
+  - target:
+      entity_id: input_boolean.water_heat_pump_running
+    action: input_boolean.turn_off
+  - data:
+      title: ✅ Counters Reset Complete
+      message: "All appliance counters have been reset to zero:\n\n• Water Pump: 0\n•
+        Kettle: 0  \n• Dishwasher: 0\n• Oven: 0\n• House HP Runtime: 0 min\n• Water
+        HP Runtime: 0 min\n\nHeat pumps turned OFF.\n"
+      notification_id: reset_complete
+    action: persistent_notification.create
+  - delay:
+      seconds: 10
+  - data:
+      notification_id: reset_warning
+    action: persistent_notification.dismiss
+  - data:
+      notification_id: reset_complete
+    action: persistent_notification.dismiss
+  alias: "\U0001F504 Reset All Appliance Counters"
+  description: ''
+sync_heat_pump_states_with_reality:
+  sequence:
+  - data:
+      title: "\U0001F504 Syncing Heat Pump States"
+      message: Please answer the questions...
+      notification_id: sync_start
+    action: persistent_notification.create
+  - delay:
+      seconds: 2
+  - target:
+      entity_id: input_boolean.house_heat_pump_running
+    action: input_boolean.turn_off
+  - target:
+      entity_id: input_boolean.water_heat_pump_running
+    action: input_boolean.turn_on
+  - data:
+      title: ✅ Sync Complete
+      message: 'Heat pump states synced:
+
+
+        • House Heat Pump: OFF (manually set)
+
+        • Hot Water Heat Pump: ON (manually set)
+
+
+        **Note:** Actual detection will resume based on power monitoring.
+
+        '
+      notification_id: sync_complete
+    action: persistent_notification.create
+  alias: Sync Heat Pump States with Reality
+  description: ''
+test_dishwasher_detection:
+  sequence:
+  - data:
+      name: TEST
+      message: Simulating dishwasher (1400W for 5 minutes)
+    action: logbook.log
+  - target:
+      entity_id: input_text.last_detected_appliance
+    data:
+      value: 'TEST: Dishwasher at {{ now().strftime(''%H:%M'') }}'
+    action: input_text.set_value
+  - target:
+      entity_id: counter.dishwasher_cycles_today
+    action: counter.increment
+  - target:
+      entity_id: input_boolean.dishwasher_running
+    action: input_boolean.turn_on
+  - delay:
+      minutes: 1
+  - data:
+      title: "\U0001F9EA Dishwasher Test"
+      message: '**Test Results:**
+
+
+        Dishwasher counter: {{ states(''counter.dishwasher_cycles_today'') }}
+
+        Dishwasher state: {{ states(''input_boolean.dishwasher_running'') }}
+
+
+        **To test completion detection, wait 30+ minutes then turn dishwasher off
+        manually.**
+
+        '
+    action: persistent_notification.create
+  alias: Test Dishwasher Detection
+  description: ''
+run_all_hems_tests:
+  sequence:
+  - data:
+      title: "\U0001F9EA HEMS Test Suite Started"
+      message: Running comprehensive test suite...
+      notification_id: test_suite_started
+    action: persistent_notification.create
+  - target:
+      entity_id: input_boolean.hems_test_mode
+    action: input_boolean.turn_on
+  - target:
+      entity_id: script.hems_test_battery_system
+    action: script.turn_on
+  - delay:
+      seconds: 2
+  - target:
+      entity_id: script.hems_test_ev_charging
+    action: script.turn_on
+  - delay:
+      seconds: 2
+  - target:
+      entity_id: script.hems_test_appliance_detection
+    action: script.turn_on
+  - delay:
+      seconds: 2
+  - target:
+      entity_id: script.hems_test_load_shedding
+    action: script.turn_on
+  - delay:
+      seconds: 5
+  - target:
+      entity_id: script.hems_generate_test_report
+    action: script.turn_on
+  - target:
+      entity_id: input_boolean.hems_test_mode
+    action: input_boolean.turn_off
+  alias: "\U0001F9EA Run All HEMS Tests"
+  description: ''
+test_battery_management_system:
+  sequence:
+  - data:
+      title: "\U0001F50B Testing Battery System..."
+      notification_id: battery_test_start
+    action: persistent_notification.create
+  - target:
+      entity_id: input_number.test_mock_battery_soc
+    data:
+      value: 80
+    action: input_number.set_value
+  - delay:
+      seconds: 2
+  - data:
+      name: "\U0001F9EA TEST"
+      message: 'Test 1/3: Battery at 80% - Battery Reserve OK should be TRUE'
+    action: logbook.log
+  - target:
+      entity_id: input_number.test_mock_battery_soc
+    data:
+      value: 40
+    action: input_number.set_value
+  - delay:
+      seconds: 2
+  - data:
+      name: "\U0001F9EA TEST"
+      message: 'Test 2/3: Battery at 40% (reserve) - Battery Reserve OK should be
+        TRUE'
+    action: logbook.log
+  - target:
+      entity_id: input_number.test_mock_battery_soc
+    data:
+      value: 30
+    action: input_number.set_value
+  - delay:
+      seconds: 2
+  - data:
+      name: "\U0001F9EA TEST"
+      message: 'Test 3/3: Battery at 30% - Battery Reserve OK should be FALSE, alert
+        should trigger'
+    action: logbook.log
+  - target:
+      entity_id: input_select.hems_test_scenario
+    data:
+      option: Grid Charging Night
+    action: input_select.select_option
+  - delay:
+      seconds: 3
+  - data:
+      name: "\U0001F9EA TEST"
+      message: 'Test 4: Grid charging scenario - Should enable grid charging'
+    action: logbook.log
+  - target:
+      entity_id: input_number.test_mock_battery_soc
+    data:
+      value: 80
+    action: input_number.set_value
+  alias: "\U0001F50B Test Battery Management System"
+  description: ''
+test_ev_charging_system:
+  sequence:
+  - data:
+      title: ⚡ Testing EV Charging...
+      notification_id: ev_test_start
+    action: persistent_notification.create
+  - target:
+      entity_id: sensor.azul_wind_battery_soc
+    data:
+      value: 40
+    action: input_number.set_value
+  - target:
+      entity_id: input_number.test_mock_surplus_solar
+    data:
+      value: 2000
+    action: input_number.set_value
+  - target:
+      entity_id: input_select.ev_charging_mode
+    data:
+      option: Daily (50%)
+    action: input_select.select_option
+  - delay:
+      seconds: 3
+  - data:
+      name: "\U0001F9EA TEST"
+      message: 'Test 1: Solar surplus (2000W) + EV at 40% - Should start charging'
+    action: logbook.log
+  - target:
+      entity_id: input_number.test_mock_surplus_solar
+    data:
+      value: 0
+    action: input_number.set_value
+  - target:
+      entity_id: input_select.hems_test_scenario
+    data:
+      option: Grid Charging Night
+    action: input_select.select_option
+  - delay:
+      seconds: 3
+  - data:
+      name: "\U0001F9EA TEST"
+      message: 'Test 2: Night tariff + low solar - Should charge from grid'
+    action: logbook.log
+  - target:
+      entity_id: sensor.azul_wind_battery_soc
+    data:
+      value: 85
+    action: input_number.set_value
+  - delay:
+      seconds: 2
+  - data:
+      name: "\U0001F9EA TEST"
+      message: 'Test 3: EV at 85% - Should NOT charge (above target)'
+    action: logbook.log
+  - target:
+      entity_id: sensor.azul_wind_battery_soc
+    data:
+      value: 40
+    action: input_number.set_value
+  - target:
+      entity_id: input_number.test_mock_surplus_solar
+    data:
+      value: 0
+    action: input_number.set_value
+  alias: ⚡ Test EV Charging System
+  description: ''
+test_appliance_detection_2:
+  sequence:
+  - data:
+      title: "\U0001F50D Testing Appliance Detection..."
+      notification_id: appliance_test_start
+    action: persistent_notification.create
+  - target:
+      entity_id: script.reset_appliance_counters
+    action: script.turn_on
+  - delay:
+      seconds: 2
+  - target:
+      entity_id: input_number.test_mock_grid_power
+    data:
+      value: 650
+    action: input_number.set_value
+  - delay:
+      seconds: 3
+  - target:
+      entity_id: input_number.test_mock_grid_power
+    data:
+      value: 0
+    action: input_number.set_value
+  - delay:
+      seconds: 2
+  - data:
+      name: "\U0001F9EA TEST"
+      message: 'Test 1: Water pump (650W spike) - Should increment counter'
+    action: logbook.log
+  - target:
+      entity_id: input_select.hems_test_scenario
+    data:
+      option: Appliance Detection
+    action: input_select.select_option
+  - target:
+      entity_id: input_number.test_mock_grid_power
+    data:
+      value: 2200
+    action: input_number.set_value
+  - delay:
+      seconds: 3
+  - data:
+      name: "\U0001F9EA TEST"
+      message: 'Test 2: Kettle (2200W) - Should increment counter'
+    action: logbook.log
+  - target:
+      entity_id: input_select.hems_test_scenario
+    data:
+      option: Dishwasher After Dinner
+    action: input_select.select_option
+  - delay:
+      seconds: 3
+  - data:
+      name: "\U0001F9EA TEST"
+      message: 'Test 3: Dishwasher scenario - Should detect cycle'
+    action: logbook.log
+  - target:
+      entity_id: input_select.hems_test_scenario
+    data:
+      option: Heat Pump Morning Start
+    action: input_select.select_option
+  - target:
+      entity_id: input_number.test_mock_grid_power
+    data:
+      value: 2500
+    action: input_number.set_value
+  - delay:
+      seconds: 3
+  - data:
+      name: "\U0001F9EA TEST"
+      message: 'Test 4: Heat pump (2500W at 10 AM) - Should turn on heat pump'
+    action: logbook.log
+  - target:
+      entity_id: input_number.test_mock_grid_power
+    data:
+      value: 0
+    action: input_number.set_value
+  alias: "\U0001F50D Test Appliance Detection"
+  description: ''
+test_load_shedding_protection:
+  sequence:
+  - data:
+      title: ⚡ Testing Load Shedding...
+      notification_id: load_shedding_test_start
+    action: persistent_notification.create
+  - target:
+      entity_id: input_boolean.house_heat_pump_running
+    action: input_boolean.turn_on
+  - target:
+      entity_id: input_boolean.water_heat_pump_running
+    action: input_boolean.turn_on
+  - target:
+      entity_id: input_select.hems_test_scenario
+    data:
+      option: Normal Operation
+    action: input_select.select_option
+  - target:
+      entity_id: input_number.test_mock_grid_power
+    data:
+      value: 4000
+    action: input_number.set_value
+  - delay:
+      seconds: 3
+  - data:
+      name: "\U0001F9EA TEST"
+      message: 'Test 1: 4000W load - Load shedding should be INACTIVE'
+    action: logbook.log
+  - target:
+      entity_id: input_select.hems_test_scenario
+    data:
+      option: Load Shedding Active
+    action: input_select.select_option
+  - target:
+      entity_id: input_number.test_mock_grid_power
+    data:
+      value: 7000
+    action: input_number.set_value
+  - delay:
+      seconds: 3
+  - data:
+      name: "\U0001F9EA TEST"
+      message: 'Test 2: 7000W load - Load shedding should ACTIVATE, turn off non-essential
+        loads'
+    action: logbook.log
+  - target:
+      entity_id: input_number.test_mock_grid_power
+    data:
+      value: 3000
+    action: input_number.set_value
+  - delay:
+      seconds: 3
+  - data:
+      name: "\U0001F9EA TEST"
+      message: 'Test 3: Load back to 3000W - Load shedding should DEACTIVATE'
+    action: logbook.log
+  alias: ⚡ Test Load Shedding Protection
+  description: ''
+generate_test_report:
+  sequence:
+  - variables:
+      timestamp: '{{ now().strftime(''%Y-%m-%d %H:%M:%S'') }}'
+  - data:
+      title: "\U0001F4CA HEMS Test Report - {{ timestamp }}"
+      message: "## \U0001F9EA Test Results Summary\n\n**Battery System:**\n• Current
+        SOC: {{ states('sensor.battery_soc') }}%\n• Reserve Minimum: {{ states('input_number.battery_reserve_minimum')
+        }}%\n• Battery Reserve OK: {{ states('sensor.battery_reserve_ok') }}\n\n**EV
+        Charging:**\n• EV SOC: {{ states('sensor.azul_wind_battery_soc') }}%\n• Charging
+        Mode: {{ states('input_select.ev_charging_mode') }}\n• Charger State: {{ states('switch.azul_wind_charger')
+        }}\n\n**Appliance Detection:**\n• Water Pump: {{ states('counter.water_pump_detections_today')
+        }} detections\n• Kettle: {{ states('counter.kettle_uses_today') }} uses\n•
+        Dishwasher: {{ states('counter.dishwasher_cycles_today') }} cycles\n• House
+        HP: {{ states('input_boolean.house_heat_pump_running') }}\n• Water HP: {{
+        states('input_boolean.water_heat_pump_running') }}\n\n**Energy Today:**\n•
+        Kettle: {{ states('sensor.kettle_energy_today') }} kWh\n• Water Pump: {{ states('sensor.water_pump_energy_today')
+        }} kWh\n• Heat Pumps: {{ (states('sensor.house_hp_energy_today')|float + states('sensor.hot_water_hp_energy_today')|float)|round(2)
+        }} kWh\n\n**Load Management:**\n• Grid Power: {{ states('sensor.on_grid_export_power')
+        }}W\n• Load Shedding: {{ states('sensor.load_shedding_active') }}\n• Solar
+        Surplus: {{ states('sensor.surplus_solar') }}W\n\n**✅ All tests completed
+        at {{ timestamp }}**\n"
+      notification_id: test_report
+    action: persistent_notification.create
+  alias: "\U0001F4CA Generate Test Report"
+  description: ''

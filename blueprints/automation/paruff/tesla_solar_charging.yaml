@@ -1,0 +1,143 @@
+blueprint:
+  name: Tesla Solar Charging w/ Forecast & Modes (GoodWe)
+  description: Smart charging with solar forecasts, multiple modes, and battery protection.
+  domain: automation
+  input:
+    tesla_charger:
+      name: Tesla Charger Entity
+      selector:
+        entity:
+          domain:
+          - binary_sensor
+          device_class:
+          - plug
+          multiple: false
+    solar_production:
+      name: Solar Production Sensor
+      selector:
+        entity:
+          domain:
+          - sensor
+          multiple: false
+    battery_soc:
+      name: Battery SOC Sensor
+      selector:
+        entity:
+          domain:
+          - sensor
+          multiple: false
+    grid_import:
+      name: Grid Import Sensor
+      selector:
+        entity:
+          domain:
+          - sensor
+          multiple: false
+    solar_forecast:
+      name: Solar Forecast Sensor
+      selector:
+        entity:
+          domain:
+          - sensor
+          multiple: false
+      description: e.g., solcast.total_kwh_forecast_today
+    charging_mode:
+      name: Charging Mode
+      selector:
+        select:
+          options:
+          - Surplus Only (PV+Battery)
+          - Trip Prep (Charge to X%)
+          - Stop (No Charging)
+          mode: dropdown
+          multiple: false
+          custom_value: false
+          sort: false
+      default: Surplus Only (PV+Battery)
+    trip_soc_target:
+      name: Trip SOC Target (%)
+      default: 90
+      selector:
+        number:
+          min: 50.0
+          max: 100.0
+          step: 5.0
+          mode: slider
+      description: Only used in 'Trip Prep' mode
+  source_url: https://raw.githubusercontent.com/paruff/ha-blueprints/refs/heads/main/blueprints/automation/tesla_solar_charging.yaml
+trigger:
+- platform: time_pattern
+  minutes: /15
+- platform: state
+  entity_id: !input solar_forecast
+- platform: state
+  entity_id: !input solar_production
+condition:
+- condition: state
+  entity_id: !input tesla_charger
+  state: 'on'
+action:
+- choose:
+  - conditions:
+    - condition: template
+      value_template: '{{ charging_mode == ''Surplus Only (PV+Battery)'' }}'
+    sequence:
+    - service: variable.set_variable
+      data:
+        entity_id: var.ev_charge_policy
+        value: Surplus
+    - if:
+      - condition: and
+        conditions:
+        - condition: template
+          value_template: "{{ (states(!input.solar_production) | float > 3000) or\n
+            \  (states(!input.solar_forecast) | float > 5) and\n   (states(!input.battery_soc)
+            | float >= 75) }}\n"
+      then:
+      - service: tesla.start_charging
+        target:
+          entity_id: !input tesla_charger
+      - service: notify.mobile_app
+        data:
+          message: '⚡ Charging STARTED (Mode: Surplus). Solar: {{ states(!input.solar_production)
+            }}W → Forecast: {{ states(!input.solar_forecast) }}kWh
+
+            '
+      else:
+      - service: tesla.stop_charging
+        target:
+          entity_id: !input tesla_charger
+  - conditions:
+    - condition: template
+      value_template: '{{ charging_mode == ''Trip Prep (Charge to X%)'' }}'
+    sequence:
+    - service: variable.set_variable
+      data:
+        entity_id: var.ev_charge_policy
+        value: TripPrep
+    - if:
+      - condition: template
+        value_template: '{{ states(''sensor.tesla_battery_level'') | float < !input
+          trip_soc_target }}
+
+          '
+      then:
+      - service: tesla.start_charging
+        target:
+          entity_id: !input tesla_charger
+      - service: notify.mobile_app
+        data:
+          message: "\U0001F697 Charging to {{ !input trip_soc_target }}% (Trip Prep
+            Mode). Current: {{ states('sensor.tesla_battery_level') }}%\n"
+  - conditions:
+    - condition: template
+      value_template: '{{ charging_mode == ''Stop (No Charging)'' }}'
+    sequence:
+    - service: tesla.stop_charging
+      target:
+        entity_id: !input tesla_charger
+    - service: variable.set_variable
+      data:
+        entity_id: var.ev_charge_policy
+        value: Stopped
+  default: []

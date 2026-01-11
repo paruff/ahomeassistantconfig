@@ -1,0 +1,21 @@
+- sensor:
+    - name: "HEMS Battery SOC"
+      unique_id: hems_battery_soc
+      unit_of_measurement: "%"
+      device_class: battery
+      state_class: measurement
+      state: "{{ states('sensor.192_168_1_143_battery') | float(0) }}"
+
+    - name: "HEMS Battery Power"
+      unique_id: hems_battery_power
+      unit_of_measurement: "W"
+      device_class: power
+      state_class: measurement
+      state: "{{ states('sensor.192_168_1_143_battery_power') | float(0) }}"
+
+- binary_sensor:
+    - name: "HEMS Battery Reserve Low"
+      unique_id: hems_battery_reserve_low
+      device_class: battery
+      # Logic: True when battery hits your 20% safety limit
+      state: "{{ states('sensor.hems_battery_soc') | float(0) <= 20 }}"

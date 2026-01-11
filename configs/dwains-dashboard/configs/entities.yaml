@@ -1,0 +1,116 @@
+binary_sensor.vodafone_hg8247x6_8n_gateway_wan_status:
+  sort_order: 2
+binary_sensor.ds920plus_security_status:
+  sort_order: 3
+media_player.play:
+  sort_order: 1
+binary_sensor.ds920plus_drive_3_exceeded_max_bad_sectors:
+  sort_order: 4
+binary_sensor.ds920plus_drive_3_below_min_remaining_life:
+  sort_order: 6
+binary_sensor.ds920plus_drive_1_exceeded_max_bad_sectors:
+  sort_order: 7
+binary_sensor.ds920plus_drive_1_below_min_remaining_life:
+  sort_order: 8
+binary_sensor.ds920plus_drive_2_exceeded_max_bad_sectors:
+  sort_order: 10
+binary_sensor.ds920plus_drive_2_below_min_remaining_life:
+  sort_order: 11
+button.ds920plus_reboot:
+  sort_order: 12
+button.ds920plus_shutdown:
+  sort_order: 14
+button.scan_clients_eshelf:
+  sort_order: 15
+number.play_balance:
+  sort_order: 5
+number.play_bass:
+  sort_order: 9
+number.play_treble:
+  sort_order: 13
+sensor.dcp_j1050dw_status:
+  sort_order: 16
+sensor.dcp_j1050dw_page_counter:
+  sort_order: 17
+sensor.dcp_j1050dw_b_w_pages:
+  sort_order: 18
+sensor.dcp_j1050dw_color_pages:
+  sort_order: 19
+sensor.dcp_j1050dw_duplex_unit_page_counter:
+  sort_order: 20
+sensor.dcp_j1050dw_black_ink_remaining:
+  sort_order: 21
+sensor.dcp_j1050dw_cyan_ink_remaining:
+  sort_order: 22
+sensor.dcp_j1050dw_magenta_ink_remaining:
+  sort_order: 23
+sensor.dcp_j1050dw_yellow_ink_remaining:
+  sort_order: 24
+sensor.brother_dcp_j1050dw_bk:
+  sort_order: 25
+sensor.brother_dcp_j1050dw_c:
+  sort_order: 26
+sensor.brother_dcp_j1050dw_m:
+  sort_order: 27
+sensor.brother_dcp_j1050dw_y:
+  sort_order: 28
+sensor.brother_dcp_j1050dw:
+  sort_order: 29
+sensor.vodafone_hg8247x6_8n_gateway_external_ip:
+  sort_order: 30
+sensor.vodafone_hg8247x6_8n_gateway_kib_s_received:
+  sort_order: 31
+sensor.vodafone_hg8247x6_8n_gateway_kib_s_sent:
+  sort_order: 32
+sensor.ds920plus_cpu_utilization_user:
+  sort_order: 33
+sensor.ds920plus_cpu_utilization_total:
+  sort_order: 34
+sensor.ds920plus_cpu_load_average_5_min:
+  sort_order: 35
+sensor.ds920plus_cpu_load_average_15_min:
+  sort_order: 36
+sensor.ds920plus_memory_usage_real:
+  sort_order: 37
+sensor.ds920plus_memory_available_swap:
+  sort_order: 38
+sensor.ds920plus_memory_available_real:
+  sort_order: 39
+sensor.ds920plus_memory_total_swap:
+  sort_order: 40
+sensor.ds920plus_memory_total_real:
+  sort_order: 41
+sensor.ds920plus_upload_throughput:
+  sort_order: 42
+sensor.ds920plus_download_throughput:
+  sort_order: 43
+sensor.ds920plus_volume_1_status:
+  sort_order: 44
+sensor.ds920plus_volume_1_used_space:
+  sort_order: 45
+sensor.ds920plus_volume_1_volume_used:
+  sort_order: 46
+sensor.ds920plus_volume_1_average_disk_temp:
+  sort_order: 47
+sensor.ds920plus_drive_3_status:
+  sort_order: 48
+sensor.ds920plus_drive_3_temperature:
+  sort_order: 49
+sensor.ds920plus_drive_1_status:
+  sort_order: 50
+sensor.ds920plus_drive_1_temperature:
+  sort_order: 51
+sensor.ds920plus_drive_2_status:
+  sort_order: 52
+sensor.ds920plus_drive_2_temperature:
+  sort_order: 53
+sensor.ds920plus_temperature:
+  sort_order: 54
+sensor.plex_eshelf:
+  sort_order: 55
+switch.play_crossfade:
+  sort_order: 56
+switch.play_loudness:
+  sort_order: 57
+update.ds920plus_dsm_update:
+  sort_order: 58

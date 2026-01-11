@@ -1,0 +1,148 @@
+# ==================== WEATHER FUSION SENSORS ====================
+
+- sensor:
+    - name: "Forecast Temperature Accuracy"
+      unique_id: weather_forecast_accuracy_temp
+      unit_of_measurement: "°C"
+      state: >
+        {% set actual = states(states('input_text.ws2900_temp_outdoor_entity'))|float(0) %}
+        {% set forecast = state_attr('weather.open_meteo', 'temperature')|float(0) %}
+        {{ (actual - forecast)|abs|round(1) }}
+      attributes:
+        actual_temp: >
+          {{ states(states('input_text.ws2900_temp_outdoor_entity'))|float(0)|round(1) }}
+        forecast_temp: >
+          {{ state_attr('weather.open_meteo', 'temperature')|float(0)|round(1) }}
+        error_pct: >
+          {% set actual = states(states('input_text.ws2900_temp_outdoor_entity'))|float(0) %}
+          {% set forecast = state_attr('weather.open_meteo', 'temperature')|float(0) %}
+          {% if actual != 0 %}
+            {{ ((actual - forecast) / actual * 100)|round(1) }}
+          {% else %}0{% endif %}
+
+    - name: "Forecast Wind Accuracy"
+      unique_id: weather_forecast_accuracy_wind
+      unit_of_measurement: "km/h"
+      state: >
+        {% set actual = states(states('input_text.ws2900_wind_speed_entity'))|float(0) %}
+        {% set forecast = state_attr('weather.open_meteo', 'wind_speed')|float(0) %}
+        {{ (actual - forecast)|abs|round(1) }}
+
+    - name: "Pressure Trend"
+      unique_id: weather_pressure_trend
+      unit_of_measurement: "hPa/h"
+      state: >
+        {% set current = states(states('input_text.ws2900_pressure_entity'))|float(0) %}
+        {% set prev = this.attributes.previous_pressure | float(current) %}
+        {{ (current - prev) | round(2) }}
+      attributes:
+        previous_pressure: >
+          {{ states(states('input_text.ws2900_pressure_entity'))|float(0) }}
+        trend_description: >
+          {% set trend = states('sensor.weather_pressure_trend')|float(0) %}
+          {% if trend > 1.5 %}Rising Fast (Good Weather Coming)
+          {% elif trend > 0.5 %}Rising (Improving)
+          {% elif trend > -0.5 %}Stable
+          {% elif trend > -1.5 %}Falling (Weather Changing)
+          {% else %}Falling Fast (Storm Possible)
+          {% endif %}
+
+    - name: "Estimated Cloud Cover"
+      unique_id: weather_cloud_cover_estimated
+      unit_of_measurement: "%"
+      state: >
+        {% set solar_radiation = states(states('input_text.ws2900_solar_radiation_entity'))|float(0) %}
+        {% set hour = now().hour %}
+        {% set day_of_year = now().timetuple().tm_yday %}
+        {% set lat = 39.4 %}
+        {% set solar_constant = 1367 %}
+        {% set declination = 23.45 * sin(360/365 * (day_of_year - 81) * 0.01745) %}
+        {% set hour_angle = (hour - 12) * 15 %}
+        {% set sin_altitude = sin(lat * 0.01745) * sin(declination * 0.01745) +
+                              cos(lat * 0.01745) * cos(declination * 0.01745) * cos(hour_angle * 0.01745) %}
+        {% set max_radiation = solar_constant * sin_altitude * 0.7 if sin_altitude > 0 else 0 %}
+        {% if max_radiation > 100 %}
+          {% set cloud_pct = 100 - (solar_radiation / max_radiation * 100) %}
+          {{ [0, [cloud_pct, 100]|min]|max|round(0) }}
+        {% else %}
+          {{ state_attr('weather.open_meteo', 'cloud_coverage')|float(50) }}
+        {% endif %}
+      attributes:
+        current_radiation: >
+          {{ states(states('input_text.ws2900_solar_radiation_entity'))|float(0)|round(0) }}
+
+    - name: "Dew Point"
+      unique_id: weather_dew_point
+      unit_of_measurement: "°C"
+      state: >
+        {% set temp = states(states('input_text.ws2900_temp_outdoor_entity'))|float(0) %}
+        {% set humidity = states(states('input_text.ws2900_humidity_outdoor_entity'))|float(0) %}
+        {% set a = 17.27 %}
+        {% set b = 237.7 %}
+        {% set alpha = ((a * temp) / (b + temp)) + log(humidity/100.0) %}
+        {{ ((b * alpha) / (a - alpha)) | round(1) }}
+
+    - name: "Feels Like Temperature"
+      unique_id: weather_feels_like
+      unit_of_measurement: "°C"
+      state: >
+        {% set temp = states(states('input_text.ws2900_temp_outdoor_entity'))|float(0) %}
+        {% set humidity = states(states('input_text.ws2900_humidity_outdoor_entity'))|float(0) %}
+        {% set wind = states(states('input_text.ws2900_wind_speed_entity'))|float(0) %}
+        {% if temp < 10 and wind > 5 %}
+          {{ (13.12 + 0.6215 * temp - 11.37 * (wind ** 0.16) + 0.3965 * temp * (wind ** 0.16)) | round(1) }}
+        {% elif temp > 26 and humidity > 40 %}
+          {{ (temp + 0.5555 * ((6.112 * (10 ** (7.5 * temp / (237.7 + temp))) * humidity / 100) - 10)) | round(1) }}
+        {% else %}
+          {{ temp | round(1) }}
+        {% endif %}
+
+    - name: "Rain State"
+      unique_id: weather_rain_state
+      state: >
+        {% set rain_rate = states(states('input_text.ws2900_rain_rate_entity'))|float(0) %}
+        {% if rain_rate > 10 %}Heavy Rain
+        {% elif rain_rate > 2.5 %}Moderate Rain
+        {% elif rain_rate > 0.5 %}Light Rain
+        {% elif rain_rate > 0 %}Drizzle
+        {% else %}No Rain
+        {% endif %}
+      attributes:
+        rain_rate_mm_h: >
+          {{ states(states('input_text.ws2900_rain_rate_entity'))|float(0)|round(1) }}
+
+# ==================== BINARY SENSORS ====================
+
+- binary_sensor:
+    - name: "Sunny Conditions"
+      unique_id: weather_is_sunny
+      state: >
+        {% set cloud = states('sensor.weather_cloud_cover_estimated')|float(100) %}
+        {% set solar = states(states('input_text.ws2900_solar_radiation_entity'))|float(0) %}
+        {{ cloud < 30 and solar > 300 }}
+
+    - name: "Currently Raining"
+      unique_id: weather_is_raining
+      state: >
+        {{ states(states('input_text.ws2900_rain_rate_entity'))|float(0) > 0 }}
+
+    - name: "Windy Conditions"
+      unique_id: weather_is_windy
+      state: >
+        {{ states(states('input_text.ws2900_wind_speed_entity'))|float(0) > 20 }}
+
+    - name: "Storm Warning"
+      unique_id: weather_storm_warning
+      state: >
+        {% set pressure_trend = states('sensor.weather_pressure_trend')|float(0) %}
+        {% set wind = states(states('input_text.ws2900_wind_speed_entity'))|float(0) %}
+        {{ pressure_trend < -2 or wind > 40 }}
+
+    - name: "Good PV Conditions"
+      unique_id: weather_good_pv_conditions
+      state: >
+        {% set cloud = states('sensor.weather_cloud_cover_estimated')|float(100) %}
+        {% set rain = is_state('binary_sensor.weather_is_raining', 'on') %}
+        {% set hour = now().hour %}
+        {{ cloud < 50 and not rain and 8 <= hour <= 18 }}
+
