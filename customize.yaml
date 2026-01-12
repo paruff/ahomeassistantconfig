@@ -1,0 +1,11 @@
+##############################################################################
+# CUSTOMIZE.YAML
+# Entity customizations (friendly names, icons, etc.)
+##############################################################################
+
+# Example customizations (add your own as needed):
+# sensor.some_sensor:
+#   friendly_name: "Better Name"
+#   icon: mdi:icon-name
+
+# Currently empty - will be populated as needed
